@@ -2,7 +2,13 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Visible build label: APK builds get VERSION_NAME from CI, Vercel builds the commit SHA.
+const APP_VERSION = process.env.VERSION_NAME
+  ? `app ${process.env.VERSION_NAME}`
+  : `web ${(process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7)}`
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
   plugins: [
     react(),
     VitePWA({

@@ -70,12 +70,12 @@ function SignInModal({ onClose }) {
         <p className="muted small">Everyone can view this page. Only the owner can track progress, sync devices and use the assistant.</p>
         <label className="field">
           <span>Email</span>
-          <input ref={first} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input ref={first} type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="next" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
         <label className="field">
           <span>Password</span>
           <div className="pw-wrap">
-            <input type={showPw ? 'text' : 'password'} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input type={showPw ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="go" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
             <button type="button" className="pw-toggle" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'}>
               {showPw ? 'Hide' : 'Show'}
             </button>
@@ -83,6 +83,7 @@ function SignInModal({ onClose }) {
         </label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="modal-actions">
+          <span className="build-tag mono">{__APP_VERSION__}</span>
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
         </div>
@@ -112,6 +113,7 @@ export default function Account() {
               <motion.div className="account-menu glass" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
                 <span className="muted small">Signed in as</span>
                 <b>{user.email}</b>
+                <span className="build-tag mono">{__APP_VERSION__}</span>
                 <button className="btn ghost" onClick={() => { setMenu(false); signOut() }}>Sign out</button>
               </motion.div>
             )}
