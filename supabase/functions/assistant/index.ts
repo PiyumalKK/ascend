@@ -12,7 +12,8 @@
 //   OWNER_EMAIL                       default piyumalm912@gmail.com
 
 import { createClient } from 'npm:@supabase/supabase-js@2.117.3'
-import { SECTIONS as SECTION_DEFS, SECTION_IDS, getAt, setAt, validateSection } from '../_shared/content-schema.js'
+import { SECTIONS as SECTION_DEFS, SECTION_IDS, getAt, setAt, validateSection, fillDefaults } from '../_shared/content-schema.js'
+import DEFAULT_CONTENT from '../_shared/default-content.js'
 
 const SECTIONS = SECTION_DEFS as Record<string, { label: string }>
 
@@ -121,8 +122,12 @@ const deadUntil = new Map<string, number>()
 const isDead = (a: Attempt) => (deadUntil.get(`${a.provider}/${a.model}`) ?? 0) > Date.now()
 function markFailure(a: Attempt, status: number, message: string) {
   const key = `${a.provider}/${a.model}`
-  if (status === 404 || (status === 429 && /quota/i.test(message))) deadUntil.set(key, Date.now() + 30 * 60_000)
-  else if (/timed out|timeout|abort/i.test(message)) deadUntil.set(key, Date.now() + 10 * 60_000)
+  if (status === 404) deadUntil.set(key, Date.now() + 6 * 60 * 60_000)
+  else if (status === 429) {
+    // Daily quota or a model with no free quota: rest it for a while. Per-minute limits: about a minute.
+    const daily = /per ?day|PerDay|limit: 0\b|free_tier_requests.*limit: 0/i.test(message)
+    deadUntil.set(key, Date.now() + (daily ? 60 * 60_000 : 65_000))
+  } else if (/timed out|timeout|abort/i.test(message)) deadUntil.set(key, Date.now() + 15 * 60_000)
 }
 
 let DIAG_ALL = false
@@ -137,10 +142,13 @@ async function attemptPlan(): Promise<Attempt[]> {
     let usable = live ? candidates.filter((m) => live.has(m)) : candidates
     if (provider === 'gemini' && live) {
       // Prefer the newest stable Flash models Google currently offers (names change often).
-      const flash = [...live]
-        .filter((m) => /^gemini-\d+(\.\d+)?-flash(-lite)?$/.test(m))
-        .sort((a, b) => parseFloat(b.split('-')[1]) - parseFloat(a.split('-')[1]) || a.length - b.length)
-      usable = [...new Set([...(Deno.env.get('GEMINI_MODEL') ? [Deno.env.get('GEMINI_MODEL')!] : []), ...flash, ...usable])]
+      const pinned = Deno.env.get('GEMINI_MODEL')
+      const ver = (m: string) => parseFloat(m.split('-')[1]) || 0
+      const pinnedVer = pinned ? ver(pinned) : Infinity
+      const flash = [...live].filter((m) => /^gemini-\d+(\.\d+)?-flash(-lite)?$/.test(m) && ver(m) <= pinnedVer)
+      const lite = flash.filter((m) => m.endsWith('-lite')).sort((a, b) => ver(b) - ver(a))
+      const full = flash.filter((m) => !m.endsWith('-lite')).sort((a, b) => ver(b) - ver(a))
+      usable = [...new Set([...(pinned && live.has(pinned) ? [pinned] : []), ...lite, ...full, ...usable])]
     }
     // Keep at most two models per provider so a bad day cannot take minutes.
     const healthy = [...new Set(usable.length ? usable : candidates)].filter((model) => DIAG_ALL || !isDead({ provider, model }))
@@ -167,7 +175,7 @@ async function askJSON(system: string, messages: Msg[], used: { provider?: strin
         const status = e instanceof HttpError ? e.status : 0
         errors.push(`${provider}/${model}: ${(e as Error).message}`)
         markFailure({ provider, model }, status, (e as Error).message)
-        if (status === 429 && /quota/i.test((e as Error).message)) break // retrying will not help
+        if (status === 429) break // another model is faster than waiting out a rate limit
         if (tryNo === 0 && RETRYABLE.has(status)) {
           await sleep(1500)
           continue
@@ -198,7 +206,10 @@ function nowInColombo() {
   return new Date().toLocaleString('en-GB', { timeZone: 'Asia/Colombo', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-const SECTION_CATALOG = SECTION_IDS.map((id) => `- ${id}: ${SECTIONS[id].label}`).join('\n')
+const SECTION_CATALOG = [
+  ...SECTION_IDS.map((id) => `- ${id}: ${SECTIONS[id].label}`),
+  '- money: Expense and income records. Pick this to LOG spending or earnings ("spent 1200 on lunch") or to answer questions about money',
+].join('\n')
 
 function routerPrompt(plan: string) {
   return `You are the planner for ASCEND, a personal timetable and life-plan website owned by Piyumal, a DevOps engineer in Sri Lanka.
@@ -234,8 +245,140 @@ Rules for edits:
 - Keep the writing style: short, direct, practical. Do not invent facts about real people.
 - If the request cannot be done with these sections, say so in "reply" and return no changes.
 
+Money (only when "money" data is provided):
+- To log spending or earnings, return them in "transactions": [{"kind":"expense"|"income","amount":number,"currency":"LKR","category":"<key>","note":"short note","date":"YYYY-MM-DD"}].
+- Use the category keys from "finance.categories" (expenses) or "finance.incomeCategories" (income); pick the closest, else "other" / "other_income".
+- Default currency is finance.currency; dates default to today ("money.today"). "Yesterday" etc. are relative to that date.
+- Rs, rupees and LKR mean LKR; $ and dollars mean USD. Never invent amounts; ask if one is missing.
+- To answer money questions, calculate from "money.transactions" and "money.totals". Be precise and show the numbers.
+- Logging money never needs "changes"; editing categories or budgets goes in the "finance" section.
+
 Reply with JSON only:
-{"reply": "1-3 sentences for the user: what you changed and why, or the answer", "summary": "short commit-style summary of the change, or empty", "changes": [{"section": "<section id>", "value": <complete new value>}]}`
+{"reply": "1-3 sentences for the user: what you changed and why, or the answer", "summary": "short commit-style summary of the change, or empty", "changes": [{"section": "<section id>", "value": <complete new value>}], "transactions": []}`
+}
+
+// ---------------------------------------------------------------- voice transcription
+const WHISPER_PROMPT = 'ASCEND timetable. Plan A, Plan B, Deep Work, Fiverr, AWS, Terraform, LKR, rupees, Sri Lanka.'
+
+async function transcribe(base64: string, mime: string): Promise<{ text: string; via: string }> {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+  if (bytes.length > 8_000_000) throw new HttpError(413, 'Recording is too long. Keep it under a minute.')
+  const errors: string[] = []
+  if (GROQ_KEY) {
+    try {
+      const ext = mime.includes('mp4') || mime.includes('m4a') ? 'm4a' : mime.includes('ogg') ? 'ogg' : 'webm'
+      const form = new FormData()
+      form.append('file', new Blob([bytes], { type: mime }), `voice.${ext}`)
+      form.append('model', Deno.env.get('WHISPER_MODEL') ?? 'whisper-large-v3-turbo')
+      form.append('response_format', 'json')
+      form.append('temperature', '0')
+      form.append('prompt', WHISPER_PROMPT)
+      const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST', headers: { Authorization: `Bearer ${GROQ_KEY}` }, body: form, signal: AbortSignal.timeout(45_000),
+      })
+      if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`)
+      return { text: String((await r.json()).text ?? '').trim(), via: 'groq-whisper' }
+    } catch (e) {
+      errors.push(`groq: ${(e as Error).message}`)
+    }
+  }
+  if (GEMINI_KEY) {
+    for (const a of (await attemptPlan()).filter((x) => x.provider === 'gemini')) {
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${a.model}:generateContent`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(45_000),
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_KEY },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [
+              { inline_data: { mime_type: mime.split(';')[0], data: base64 } },
+              { text: `Transcribe this voice note exactly, in the language spoken. Return only the transcript. Context: ${WHISPER_PROMPT}` },
+            ] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 1024 },
+          }),
+        })
+        if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`)
+        const d = await r.json()
+        const text = d?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('').trim()
+        if (text) return { text, via: `gemini/${a.model}` }
+      } catch (e) {
+        errors.push(`gemini/${a.model}: ${(e as Error).message}`)
+      }
+    }
+  }
+  throw new HttpError(502, `Could not transcribe the recording. ${errors.join(' | ').slice(0, 300)}`)
+}
+
+// ---------------------------------------------------------------- money
+function colomboToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' })
+}
+
+// deno-lint-ignore no-explicit-any
+async function loadMoney(supabase: any) {
+  const since = new Date(Date.now() - 92 * 86400_000).toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from('transactions').select('kind, amount, currency, category, note, occurred_on')
+    .gte('occurred_on', since).order('occurred_on', { ascending: false }).limit(400)
+  if (error) return { error: error.message }
+  // totals["2026-10 expense LKR"] = { food: 4200, transport: 900, ... }
+  const totals: Record<string, Record<string, number>> = {}
+  for (const t of data) {
+    const key = `${t.occurred_on.slice(0, 7)} ${t.kind} ${t.currency}`
+    totals[key] ??= {}
+    totals[key][t.category] = Math.round(((totals[key][t.category] ?? 0) + Number(t.amount)) * 100) / 100
+  }
+  return { today: colomboToday(), totals, transactions: data.slice(0, 120) }
+}
+
+type Tx = { kind: string; amount: number; currency: string; category: string; note?: string; date?: string }
+
+// deno-lint-ignore no-explicit-any
+function validateTransactions(list: unknown, finance: any): { txs: Tx[]; errors: string[] } {
+  const errors: string[] = []
+  const txs: Tx[] = []
+  if (list == null) return { txs, errors }
+  if (!Array.isArray(list)) return { txs, errors: ['"transactions" must be a list'] }
+  const exp = new Set((finance?.categories ?? []).map((c: { key: string }) => c.key))
+  const inc = new Set((finance?.incomeCategories ?? []).map((c: { key: string }) => c.key))
+  const today = colomboToday()
+  const oldest = new Date(Date.now() - 400 * 86400_000).toISOString().slice(0, 10)
+  list.slice(0, 20).forEach((t: Tx, i: number) => {
+    const p = `transactions[${i}]`
+    if (t?.kind !== 'expense' && t?.kind !== 'income') {
+      errors.push(`${p}.kind must be expense or income`)
+      return
+    }
+    const amount = Number(t.amount)
+    if (!(amount > 0 && amount < 1e9)) errors.push(`${p}.amount must be a positive number`)
+    const currency = String(t.currency || finance?.currency || 'LKR').toUpperCase()
+    if (!/^[A-Z]{3}$/.test(currency)) errors.push(`${p}.currency must be a 3-letter code`)
+    const cats = t.kind === 'expense' ? exp : inc
+    if (!cats.has(t.category)) errors.push(`${p}.category "${t.category}" is not one of: ${[...cats].join(', ')}`)
+    const date = t.date || today
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today || date < oldest) errors.push(`${p}.date must be YYYY-MM-DD and not in the future`)
+    txs.push({ kind: t.kind, amount: Math.round(amount * 100) / 100, currency, category: t.category, note: String(t.note ?? '').slice(0, 300), date })
+  })
+  return { txs, errors }
+}
+
+// ---------------------------------------------------------------- quick router
+const DAYS = /\b(mon|tues?|wed(nes)?|thu(rs)?|fri|weekdays?)(day)?s?\b/i
+function quickRoute(message: string): string[] | null {
+  const m = message.toLowerCase()
+  const plans = /plan\s*b|bike|gym/.test(m) && !/plan\s*a/.test(m) ? ['B'] : /plan\s*a/.test(m) && !/plan\s*b/.test(m) ? ['A'] : ['A', 'B']
+  if (/\b(spent|spend|paid|pay|bought|buy|expense|income|earned|salary|budget|rs\.?|rupees?|lkr|usd|\$\s?\d)/.test(m)) return ['money']
+  if (/\b(channel|chanel)s?\b/.test(m)) return ['channels']
+  if (/\broad ?map\b|milestone/.test(m)) return ['roadmap']
+  if (/\bscorecard\b/.test(m)) return ['scorecard', 'scorecardWin']
+  if (/\b(legend|successful (men|people))\b/.test(m)) return ['legends']
+  if (/\bcert(ification)?s?\b|\bexam\b/.test(m) && !/\b(\d{1,2}[:.]\d{2}|am|pm)\b/.test(m)) return ['certs']
+  if (/\bgigs?\b/.test(m)) return ['gigs']
+  const times = /\b(\d{1,2}([:.]\d{2})?\s?(am|pm)?|minutes?|mins?|hours?|earlier|later|morning|evening|block)\b/.test(m)
+  if (/\bsundays?\b/.test(m) && times) return plans.map((p) => `schedule.${p}.sunday`)
+  if (/\bsaturdays?\b/.test(m) && times) return plans.map((p) => `schedule.${p}.saturday`)
+  if (DAYS.test(m) && times) return plans.map((p) => `schedule.${p}.weekday`)
+  return null
 }
 
 // ---------------------------------------------------------------- fixed-commitment guard
@@ -274,6 +417,11 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}))
     const plan = body.plan === 'B' ? 'B' : 'A'
+    if (body.action === 'transcribe') {
+      const audio = String(body.audio ?? '')
+      if (!audio) throw new HttpError(400, 'No audio received.')
+      return json(await transcribe(audio, String(body.mime ?? 'audio/webm')))
+    }
     if (body.action === 'models') {
       // Diagnostics: ping every model in the plan with a tiny JSON request.
       DIAG_ALL = true
@@ -304,27 +452,34 @@ Deno.serve(async (req) => {
       .from('content_versions').select('id, content').order('id', { ascending: false }).limit(1).maybeSingle()
     if (rowErr) throw new HttpError(500, `Could not read content: ${rowErr.message}`)
     if (!row) throw new HttpError(409, 'No content saved yet. Open the website signed in once, then try again.')
-    const content = row.content
+    // Older saved documents may lack sections added later; fill them from the defaults.
+    const content = fillDefaults(row.content, DEFAULT_CONTENT)
 
     const used: { provider?: string; model?: string } = {}
     const convo: Msg[] = [...history, { role: 'user', content: message }]
 
-    // 1) Route: which sections matter?
-    const route = await askJSON(routerPrompt(plan), convo, used, 'low', 600)
+    // 1) Route: which sections matter? Obvious requests skip the extra model call.
+    const quick = quickRoute(message)
+    const route = quick ? { sections: quick } : await askJSON(routerPrompt(plan), convo, used, 'low', 600)
     if (route?.clarify) {
       return json({ reply: String(route.clarify), changes: [], provider: used.provider, model: used.model, baseVersion: row.id })
     }
     const sections: string[] = (Array.isArray(route?.sections) ? route.sections : [])
-      .filter((s: string) => SECTION_IDS.includes(s)).slice(0, 8)
+      .filter((s: string) => SECTION_IDS.includes(s) || s === 'money').slice(0, 8)
     if (!sections.length) sections.push('site')
+    const wantsMoney = sections.includes('money')
+    const contentSections = sections.filter((s) => s !== 'money')
+    if (wantsMoney && !contentSections.includes('finance')) contentSections.push('finance')
 
     // 2) Edit with validation and up to two repair rounds.
-    const payload = Object.fromEntries(sections.map((s) => [s, getAt(content, s)]))
+    const payload: Record<string, unknown> = Object.fromEntries(contentSections.map((s) => [s, getAt(content, s)]))
+    if (wantsMoney) payload.money = await loadMoney(supabase)
     const editMsgs: Msg[] = [
       ...history,
       { role: 'user', content: `Current sections:\n${JSON.stringify(payload)}\n\nRequest: ${message}` },
     ]
-    let result: { reply?: string; summary?: string; changes?: { section: string; value: unknown }[] } = {}
+    let result: { reply?: string; summary?: string; changes?: { section: string; value: unknown }[]; transactions?: unknown } = {}
+    let txs: Tx[] = []
     let errors: string[] = []
     const started = Date.now()
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -344,6 +499,10 @@ Deno.serve(async (req) => {
       const toCheck = touched.has('pillars') ? SECTION_IDS : [...touched]
       for (const s of toCheck) errors.push(...validateSection(s, getAt(next, s), next))
       for (const c of changes) errors.push(...fixedBlockErrors(c.section, getAt(content, c.section), c.value, message))
+      const financeAfter = changes.find((c) => c.section === 'finance')?.value ?? content.finance
+      const tx = validateTransactions(result?.transactions, financeAfter)
+      txs = tx.txs
+      errors.push(...tx.errors)
       if (!errors.length) break
       if (Date.now() - started > 75_000) break // stay well inside the function's time limit
       editMsgs.push({ role: 'assistant', content: JSON.stringify(result) })
@@ -367,6 +526,7 @@ Deno.serve(async (req) => {
     ])
 
     return json({
+      transactions: txs,
       reply: String(result.reply ?? (changes.length ? 'Here is the change.' : 'Done.')),
       summary: String(result.summary ?? '').slice(0, 300),
       changes,

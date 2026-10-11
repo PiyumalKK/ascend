@@ -164,8 +164,9 @@ export const SECTIONS = {
   fiverrRules: { label: 'Fiverr rules', spec: T.arr(T.str(200, 1), 20) },
   levels: { label: 'Fiverr seller levels', spec: T.arr(T.obj({ name: T.str(30, 1), req: T.str(160), unlock: T.str(80) }), 8) },
   channels: {
-    label: 'Content channels A–D: suggestion text and videos per day',
+    label: 'Content channels A–D: channel names (names.A … names.D), suggestions, videos per day',
     spec: T.obj({
+      names: T.opt(T.obj({ A: T.str(60), B: T.str(60), C: T.str(60), D: T.str(60) })),
       videosPerChannelPerDay: T.num(0, 20),
       suggestions: T.arr(T.str(120), 8, 1),
       batchNote: T.str(400),
@@ -184,6 +185,15 @@ export const SECTIONS = {
   legends: {
     label: 'Successful people research cards',
     spec: T.arr(T.obj({ name: T.str(60, 1), role: T.str(80), wake: T.str(20), habit: T.str(500), yours: T.str(300), quote: T.opt(T.str(200)) }), 30),
+  },
+  finance: {
+    label: 'Money tracker settings: base currency, monthly budget, expense and income categories (with optional per-category budgets)',
+    spec: T.obj({
+      currency: T.str(3, 3),
+      monthlyBudget: T.num(0, 1e9),
+      categories: T.arr(T.obj({ key: T.key(), label: T.str(40, 1), color: T.color(), icon: T.str(4, 1), budget: T.opt(T.num(0, 1e9)) }), 30, 1),
+      incomeCategories: T.arr(T.obj({ key: T.key(), label: T.str(40, 1), color: T.color(), icon: T.str(4, 1) }), 15, 1),
+    }),
   },
   principles: { label: 'Principles under the legends', spec: T.arr(T.obj({ k: T.str(60, 1), v: T.str(300) }), 12) },
 }
@@ -272,5 +282,32 @@ export function diffValues(before, after, path = '', out = []) {
     return out
   }
   out.push({ path, before, after })
+  return out
+}
+
+// ---------------------------------------------------------------- defaults
+/**
+ * Fill sections and fixed object fields that an older document lacks, guided by the schema.
+ * Lists and dictionaries are never merged, so items the user deleted do not come back.
+ */
+export function fillDefaults(content, defaults) {
+  const fill = (spec, value, def) => {
+    if (value === undefined || value === null) return def === undefined ? value : structuredClone(def)
+    if (spec?.t === 'obj' && value && typeof value === 'object' && !Array.isArray(value) && def && typeof def === 'object') {
+      const out = { ...value }
+      for (const [k, s] of Object.entries(spec.fields)) {
+        const filled = fill(s, value[k], def[k])
+        if (filled !== undefined) out[k] = filled
+      }
+      return out
+    }
+    return value
+  }
+  let out = content || {}
+  for (const id of SECTION_IDS) {
+    const current = getAt(out, id)
+    const next = fill(SECTIONS[id].spec, current, getAt(defaults, id))
+    if (next !== current) out = setAt(out, id, next)
+  }
   return out
 }

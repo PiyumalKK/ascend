@@ -5,9 +5,13 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useContentStore, pillarOf } from '../lib/content'
 import { useStored } from '../hooks'
+import VoiceButton from './VoiceButton'
+import { insertTransactions, formatMoney } from '../lib/money'
 import { SECTIONS, SECTION_IDS, getAt, setAt, validateContent, validateSection, diffValues } from '../../supabase/functions/_shared/content-schema.js'
 
 const SUGGESTIONS = [
+  'Spent 1200 rupees on lunch today',
+  'How much did I spend on food this month?',
   'What does my Tuesday look like in Plan A?',
   'In Plan B, move the gym to 18:00 on weekdays and adjust the evening',
   'Add “Pass CKA exam” to the Q2 2027 roadmap',
@@ -69,6 +73,41 @@ function ChangeView({ change, content }) {
   )
 }
 
+function TxProposal({ m, content, onAdd, onDiscard }) {
+  const meta = Object.fromEntries([...content.finance.categories, ...content.finance.incomeCategories].map((c) => [c.key, c]))
+  return (
+    <div className="proposal">
+      <div className="change">
+        <div className="change-head"><b>Money to log</b><span className="mono muted">{m.txs.length} entr{m.txs.length === 1 ? 'y' : 'ies'}</span></div>
+        <ul className="tx-list compact">
+          {m.txs.map((t, i) => {
+            const c = meta[t.category] || { label: t.category, icon: '•' }
+            return (
+              <li key={i}>
+                <span className="tx-icon" aria-hidden="true">{c.icon}</span>
+                <div className="tx-main"><b>{t.note || c.label}</b><small className="muted">{c.label} · {t.date}</small></div>
+                <span className={`tx-amt mono ${t.kind}`}>{t.kind === 'income' ? '+' : '−'}{formatMoney(t.amount, t.currency)}</span>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+      {m.txError && <p className="form-error">{m.txError}</p>}
+      <div className="proposal-actions">
+        {m.txState === 'proposed' && (
+          <>
+            <button className="btn primary" onClick={onAdd}>Add {m.txs.length === 1 ? 'it' : `all ${m.txs.length}`}</button>
+            <button className="btn ghost" onClick={onDiscard}>Discard</button>
+          </>
+        )}
+        {m.txState === 'adding' && <span className="muted small">Saving…</span>}
+        {m.txState === 'added' && <span className="ok-tag">✓ Added to Money</span>}
+        {m.txState === 'discarded' && <span className="muted small">Discarded</span>}
+      </div>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------- chat
 // The plan the user is looking at (synced setting, cached locally per user).
 function currentPlan() {
@@ -98,11 +137,14 @@ async function callAssistant(message, history, onAuthError) {
 
 function Chat() {
   const store = useContentStore()
-  const { revalidate } = useAuth()
+  const { revalidate, user } = useAuth()
+  const [fromVoice, setFromVoice] = useState(false)
   const [messages, setMessages] = useStored('ascend.chat.v1', [])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
   const listRef = useRef(null)
+  const inputRef = useRef(null)
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
@@ -118,11 +160,15 @@ function Chat() {
     setMessages((ms) => [...ms, userMsg].slice(-40))
     setInput('')
     setBusy(true)
+    setFromVoice(false)
     try {
       const res = await callAssistant(message, history, revalidate)
       setMessages((ms) => [...ms, {
         id: crypto.randomUUID(),
         role: 'assistant',
+        txs: res.transactions?.length ? res.transactions : undefined,
+        txState: res.transactions?.length ? 'proposed' : undefined,
+        voice: fromVoice,
         content: res.reply,
         summary: res.summary,
         changes: res.changes?.length ? res.changes : undefined,
@@ -148,6 +194,19 @@ function Chat() {
       update(m.id, { state: 'applied', versionId: id, previousVersion: previous })
     } catch (e) {
       update(m.id, { state: 'proposed', applyError: e.message })
+    }
+  }
+
+  async function addTxs(m) {
+    update(m.id, { txState: 'adding', txError: '' })
+    try {
+      await insertTransactions(user.id, m.txs.map((t) => ({
+        kind: t.kind, amount: t.amount, currency: t.currency, category: t.category,
+        note: t.note || null, occurred_on: t.date, source: m.voice ? 'voice' : 'ai',
+      })))
+      update(m.id, { txState: 'added' })
+    } catch (e) {
+      update(m.id, { txState: 'proposed', txError: e.message })
     }
   }
 
@@ -199,13 +258,22 @@ function Chat() {
                 </div>
               </div>
             )}
+            {m.txs && (
+              <TxProposal m={m} content={store.content} onAdd={() => addTxs(m)} onDiscard={() => update(m.id, { txState: 'discarded' })} />
+            )}
             {m.provider && <span className="via mono">via {m.provider}</span>}
           </div>
         ))}
         {busy && <div className="msg assistant typing"><span /><span /><span /></div>}
       </div>
       <form className="chat-input" onSubmit={(e) => { e.preventDefault(); send(input) }}>
+        <VoiceButton
+          disabled={busy}
+          onText={(t) => { setVoiceError(''); setFromVoice(true); setInput((v) => (v ? `${v} ${t}` : t)); inputRef.current?.focus() }}
+          onError={setVoiceError}
+        />
         <textarea
+          ref={inputRef}
           rows={1}
           value={input}
           placeholder="e.g. Move Deep Work II to 20:00 on weekdays"
@@ -215,6 +283,7 @@ function Chat() {
         />
         <button className="btn primary" disabled={busy || !input.trim()} aria-label="Send">➤</button>
       </form>
+      {voiceError && <p className="form-error small">{voiceError}</p>}
       {messages.length > 0 && <button className="link-btn" onClick={() => setMessages([])}>Clear chat</button>}
     </div>
   )
@@ -264,6 +333,14 @@ function History() {
 }
 
 // ---------------------------------------------------------------- manual editor
+const EDITOR_GROUPS = [
+  ['Timetable', (id) => id.startsWith('schedule.') || id === 'plans'],
+  ['Site & look', (id) => ['site', 'pillars', 'coreFour', 'fronts'].includes(id)],
+  ['Career', (id) => ['certs', 'english', 'domain', 'roadmap'].includes(id)],
+  ['Fiverr', (id) => ['gigs', 'launch', 'fiverrRules', 'levels'].includes(id)],
+  ['Content & money', (id) => ['channels', 'contentPipeline', 'contentRules', 'wealthWeeks', 'wealthGuardrails', 'finance'].includes(id)],
+  ['Habits & research', (id) => ['scorecard', 'scorecardWin', 'legends', 'principles'].includes(id)],
+]
 function Editor() {
   const store = useContentStore()
   const [section, setSection] = useState('roadmap')
@@ -301,7 +378,11 @@ function Editor() {
   return (
     <div className="editor">
       <select value={section} onChange={(e) => setSection(e.target.value)}>
-        {SECTION_IDS.map((id) => <option key={id} value={id}>{SECTIONS[id].label}</option>)}
+        {EDITOR_GROUPS.map(([group, test]) => (
+          <optgroup key={group} label={group}>
+            {SECTION_IDS.filter(test).map((id) => <option key={id} value={id}>{SECTIONS[id].label}</option>)}
+          </optgroup>
+        ))}
       </select>
       <textarea spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} />
       {errors.length > 0 && <ul className="form-error">{errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}</ul>}

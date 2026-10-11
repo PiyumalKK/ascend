@@ -2,18 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { supabase } from './supabase'
 import { useAuth } from './auth'
 import { DEFAULT_CONTENT } from '../data/defaults'
-import { SECTION_IDS, getAt, setAt, validateContent } from '../../supabase/functions/_shared/content-schema.js'
+import { validateContent, fillDefaults } from '../../supabase/functions/_shared/content-schema.js'
 
 const CACHE_KEY = 'ascend.content.v1'
 const ContentContext = createContext(null)
 
 // Fill sections that older documents lack (new features add sections over time).
 function withDefaults(content) {
-  let out = content
-  for (const id of SECTION_IDS) {
-    if (getAt(out, id) === undefined) out = setAt(out, id, structuredClone(getAt(DEFAULT_CONTENT, id)))
-  }
-  return out
+  return fillDefaults(content, DEFAULT_CONTENT)
 }
 
 function readCache() {
@@ -50,9 +46,11 @@ export function ContentProvider({ children }) {
       console.error('Stored content failed validation; keeping current content.', errors)
       return
     }
-    const entry = { content: withDefaults(row.content), version: row.id }
+    const filled = withDefaults(row.content)
+    const entry = { content: filled, version: row.id }
     writeCache(entry)
-    setState({ ...entry, loaded: true })
+    // Remember when the stored document predates new sections, so the owner can save it once.
+    setState({ ...entry, loaded: true, outdated: JSON.stringify(filled) !== JSON.stringify(row.content) })
   }, [])
 
   // Load the newest version and follow new versions live.
@@ -106,6 +104,17 @@ export function ContentProvider({ children }) {
       }
     })()
   }, [isOwner, user, state.loaded, state.version, apply])
+
+  // Store the upgraded document once, so the server and history see every section.
+  useEffect(() => {
+    if (!isOwner || !state.outdated || state.version == null) return
+    supabase
+      .from('content_versions')
+      .insert({ user_id: user.id, content: state.content, summary: 'App update: added new sections', source: 'seed' })
+      .select('id, content')
+      .single()
+      .then(({ data }) => data && apply(data))
+  }, [isOwner, user, state.outdated, state.version, state.content, apply])
 
   const save = useCallback(
     async (content, summary, source = 'manual') => {

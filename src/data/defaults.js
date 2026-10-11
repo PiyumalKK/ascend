@@ -93,6 +93,7 @@ export const DEFAULT_CONTENT = {
   fiverrRules: [...FIVERR_RULES],
   levels: LEVELS.map((l) => ({ ...l })),
   channels: {
+    names: { A: '', B: '', C: '', D: '' },
     videosPerChannelPerDay: 1,
     suggestions: [...CHANNEL_SUGGESTIONS],
     batchNote: 'Made in two factories: Saturday 08:30–12:00 and Sunday 08:00–11:30, then everything is scheduled in Meta Business Suite. Weekdays you only check the queue and reply to comments (10 minutes).',
@@ -109,4 +110,26 @@ export const DEFAULT_CONTENT = {
     return quote ? { ...rest, quote } : rest
   }),
   principles: PRINCIPLES.map((p) => ({ ...p })),
+  finance: {
+    currency: 'LKR',
+    monthlyBudget: 0,
+    categories: [
+      { key: 'food', label: 'Food & dining', color: '#f4a261', icon: '🍛' },
+      { key: 'transport', label: 'Transport', color: '#7d8bb0', icon: '🚌' },
+      { key: 'bills', label: 'Bills & utilities', color: '#4cc9f0', icon: '💡' },
+      { key: 'family', label: 'Family & home', color: '#ff8fab', icon: '🏠' },
+      { key: 'health', label: 'Health & gym', color: '#ff6b6b', icon: '💪' },
+      { key: 'learning', label: 'Courses & certs', color: '#3a86ff', icon: '🎓' },
+      { key: 'tools', label: 'Software & AI tools', color: '#b388ff', icon: '🛠' },
+      { key: 'shopping', label: 'Shopping', color: '#ff4fd8', icon: '🛍' },
+      { key: 'fun', label: 'Entertainment', color: '#ffc857', icon: '🎬' },
+      { key: 'other', label: 'Other', color: '#8f97b8', icon: '•' },
+    ],
+    incomeCategories: [
+      { key: 'salary', label: 'Salary', color: '#1dbf73', icon: '💼' },
+      { key: 'fiverr', label: 'Fiverr', color: '#1dbf73', icon: '▲' },
+      { key: 'content', label: 'Content payouts', color: '#ff4fd8', icon: '●' },
+      { key: 'other_income', label: 'Other income', color: '#8f97b8', icon: '+' },
+    ],
+  },
 }

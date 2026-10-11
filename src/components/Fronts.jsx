@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import Section, { rise } from './Section'
 import TiltCard from './TiltCard'
 import { daysBetween } from '../hooks'
 import { useCloudState } from '../lib/store'
-import { useContent, pillarOf } from '../lib/content'
+import { useContent, useContentStore, pillarOf } from '../lib/content'
+import { useAuth } from '../lib/auth'
 import { ViewOnlyNote } from './Account'
 
 function Ring({ value, color, size = 84 }) {
@@ -139,8 +140,30 @@ function Fiverr({ startKey, setStartKey, now }) {
 }
 
 function Content() {
-  const [names, setNames, canEdit] = useCloudState('channels', { A: '', B: '', C: '', D: '' }, { viewOnly: true })
-  const ct = useContent()
+  // Older accounts kept names in a personal setting; it is now only read to migrate once.
+  const [legacyNames] = useCloudState('channels', { A: '', B: '', C: '', D: '' }, { viewOnly: true })
+  const store = useContentStore()
+  const { isOwner } = useAuth()
+  const ct = store.content
+  const saved = ct.channels.names || { A: '', B: '', C: '', D: '' }
+  const [draft, setDraft] = useState(saved)
+  const canEdit = isOwner
+  const savedKey = JSON.stringify(saved)
+  useEffect(() => setDraft(JSON.parse(savedKey)), [savedKey])
+
+  const saveNames = async (names, summary) => {
+    if (JSON.stringify(names) === savedKey) return
+    await store.save({ ...ct, channels: { ...ct.channels, names } }, summary, 'manual').catch(() => {})
+  }
+
+  // One-time migration of names typed before they became part of the site content.
+  useEffect(() => {
+    if (!isOwner || !store.loaded || store.version == null) return
+    const hasSaved = Object.values(saved).some(Boolean)
+    const hasLegacy = Object.values(legacyNames || {}).some(Boolean)
+    if (!hasSaved && hasLegacy) saveNames({ A: '', B: '', C: '', D: '', ...legacyNames }, 'Moved channel names into site content')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOwner, store.loaded, store.version, JSON.stringify(legacyNames)])
   const color = pillarOf(ct, 'content').color
   const perDay = ct.channels.videosPerChannelPerDay
   return (
@@ -148,7 +171,7 @@ function Content() {
       <div className="stack">
         <div className="glass card">
           <h3>Your four channels</h3>
-          <p className="muted small">Name them. Synced to your account.</p>
+          <p className="muted small">Name them here or ask the assistant. Saved as part of your site.</p>
           <ViewOnlyNote />
           <div className="channels">
             {['A', 'B', 'C', 'D'].map((k, i) => (
@@ -156,9 +179,11 @@ function Content() {
                 <span className="channel-k">{k}</span>
                 <input
                   readOnly={!canEdit}
-                  value={names[k]}
+                  value={draft[k] || ''}
                   placeholder={ct.channels.suggestions[i] || ''}
-                  onChange={(e) => setNames({ ...names, [k]: e.target.value })}
+                  onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+                  onBlur={() => saveNames(draft, `Renamed channel ${k}`)}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                   aria-label={`Channel ${k} name`}
                 />
                 <span className="channel-q mono">{7 * perDay} videos / week</span>
