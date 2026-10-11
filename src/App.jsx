@@ -8,6 +8,7 @@ import Roadmap from './components/Roadmap'
 import Scorecard from './components/Scorecard'
 import Alerts from './components/Alerts'
 import Money from './components/Money'
+import Growth from './components/Growth'
 import { useContent, pillarOf } from './lib/content'
 import { useNow } from './hooks'
 import { useCloudState } from './lib/store'
@@ -24,6 +25,7 @@ const LINKS = [
   ['roadmap', 'Roadmap'],
   ['scorecard', 'Scorecard'],
   ['money', 'Money'],
+  ['growth', 'Growth'],
   ['alerts', 'App'],
 ]
 
@@ -78,6 +80,7 @@ export default function App() {
         <Roadmap />
         <Scorecard now={now} />
         <Money />
+        <Growth />
         <Alerts plan={plan} />
       </main>
       <footer className="footer">

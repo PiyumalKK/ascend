@@ -615,3 +615,34 @@ select optgroup { color: #8f7bff; font-style: normal; font-weight: 600; }
   .month-bar .export { margin-left: 0; }
 }
 .tx-list.compact li { grid-template-columns: 30px 1fr auto; }
+
+/* ---------- growth radar ---------- */
+.growth-panel { display: grid; gap: 12px; align-content: start; }
+.growth-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.growth-head h3 { margin: 0 0 2px; }
+.btn.sm { padding: 7px 12px; font-size: 0.82rem; border-radius: 10px; white-space: nowrap; }
+.growth-summary { margin: 0; color: #e3e7ff; font-size: 1.02rem; line-height: 1.55; }
+.sugg-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.sugg { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: start; padding: 12px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); }
+.sugg-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: rgba(143, 123, 255, 0.25); color: #d6ceff; }
+.sugg b { display: block; font-size: 0.93rem; }
+.sugg p { margin: 3px 0 0; color: #b9c0e3; font-size: 0.85rem; }
+.news-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.news-list li { padding: 12px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); }
+.news-list a { color: #e3e7ff; text-decoration: none; }
+.news-list a:hover b { text-decoration: underline; }
+.news-list p { margin: 4px 0 0; color: #b9c0e3; font-size: 0.86rem; }
+.news-top { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+.news-topic { font-family: var(--mono); font-size: 0.68rem; padding: 2px 8px; border-radius: 6px; background: rgba(76, 201, 240, 0.18); color: #9fe6ff; }
+.news-action { color: #7ee2b0 !important; }
+.sources { margin-top: 4px; font-size: 0.8rem; color: var(--muted); }
+.sources summary { cursor: pointer; }
+.sources ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; }
+.sources a { color: #9fb4ff; word-break: break-word; }
+.chat-ticks { margin-top: 8px; }
+.chat-ticks li { font-size: 0.85rem; }
+.msg .sugg-list, .msg .news-list { margin-top: 10px; }
+.msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.msg-foot .via { margin-top: 0; }
+.speak-btn { border: 0; background: rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 0.85rem; }
+@media (max-width: 600px) { .sugg { grid-template-columns: 30px 1fr; } .sugg .btn { grid-column: 2; justify-self: start; } }

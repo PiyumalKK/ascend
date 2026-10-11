@@ -186,6 +186,21 @@ export const SECTIONS = {
     label: 'Successful people research cards',
     spec: T.arr(T.obj({ name: T.str(60, 1), role: T.str(80), wake: T.str(20), habit: T.str(500), yours: T.str(300), quote: T.opt(T.str(200)) }), 30),
   },
+  profile: {
+    label: 'About Piyumal: role, location, experience, skills, certifications earned, goals and interests (used by the assistant for advice and news)',
+    spec: T.obj({
+      name: T.str(60, 1),
+      role: T.str(120),
+      location: T.str(60),
+      summary: T.str(800),
+      experience: T.arr(T.str(200, 1), 15),
+      skills: T.arr(T.str(60, 1), 60),
+      certificationsEarned: T.arr(T.str(120, 1), 20),
+      goals: T.arr(T.str(200, 1), 20),
+      interests: T.arr(T.str(80, 1), 30),
+      newsTopics: T.arr(T.str(80, 1), 20),
+    }),
+  },
   finance: {
     label: 'Money tracker settings: base currency, monthly budget, expense and income categories (with optional per-category budgets)',
     spec: T.obj({

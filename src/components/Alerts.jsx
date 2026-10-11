@@ -123,7 +123,7 @@ export default function Alerts({ plan }) {
   return (
     <Section
       id="alerts"
-      kicker="07 · Apps & alerts"
+      kicker="08 · Apps & alerts"
       title={native ? 'Never miss a block' : 'Take it with you'}
       intro={native ? 'Every block in your timetable rings at the right minute, seven days a week.' : 'Use ASCEND as an installed app on your phone and laptop. Your progress syncs between them.'}
     >

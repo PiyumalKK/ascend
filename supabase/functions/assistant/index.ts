@@ -14,6 +14,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.117.3'
 import { SECTIONS as SECTION_DEFS, SECTION_IDS, getAt, setAt, validateSection, fillDefaults } from '../_shared/content-schema.js'
 import DEFAULT_CONTENT from '../_shared/default-content.js'
+import { buildSnapshot, runInsights, runNews } from './growth.ts'
 
 const SECTIONS = SECTION_DEFS as Record<string, { label: string }>
 
@@ -208,6 +209,8 @@ function nowInColombo() {
 
 const SECTION_CATALOG = [
   ...SECTION_IDS.map((id) => `- ${id}: ${SECTIONS[id].label}`),
+  '- insights: analyse progress across everything (habits, launch, money, career) and suggest next steps or NEW ideas',
+  '- news: latest news and updates from the web relevant to career, freelancing, content and finances',
   '- money: Expense and income records. Pick this to LOG spending or earnings ("spent 1200 on lunch") or to answer questions about money',
 ].join('\n')
 
@@ -367,6 +370,10 @@ const DAYS = /\b(mon|tues?|wed(nes)?|thu(rs)?|fri|weekdays?)(day)?s?\b/i
 function quickRoute(message: string): string[] | null {
   const m = message.toLowerCase()
   const plans = /plan\s*b|bike|gym/.test(m) && !/plan\s*a/.test(m) ? ['B'] : /plan\s*a/.test(m) && !/plan\s*b/.test(m) ? ['A'] : ['A', 'B']
+  // Edit commands ("add", "rename", ...) go to the editor even if they mention ideas or news.
+  const editCommand = /^\s*(please\s+)?(add|remove|delete|rename|change|move|set|update|replace|make|increase|decrease|shorten|extend|put|swap)\b/.test(m)
+  if (!editCommand && /\b(news|latest|what'?s new|trends?|trending|announcements?)\b/.test(m)) return ['news']
+  if (!editCommand && /\b(analy[sz]e|analysis|how am i doing|my progress|suggest(ions?)?|ideas?|advice|advise|recommend(ations?)?|improve|focus on|what should i|coach|insights?)\b/.test(m)) return ['insights']
   if (/\b(spent|spend|paid|pay|bought|buy|expense|income|earned|salary|budget|rs\.?|rupees?|lkr|usd|\$\s?\d)/.test(m)) return ['money']
   if (/\b(channel|chanel)s?\b/.test(m)) return ['channels']
   if (/\broad ?map\b|milestone/.test(m)) return ['roadmap']
@@ -417,6 +424,33 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}))
     const plan = body.plan === 'B' ? 'B' : 'A'
+
+    const saveReport = async (kind: string, text: string, meta: unknown) => {
+      await supabase.from('ai_reports').insert({ user_id: auth.user!.id, kind, content: text, meta })
+    }
+    const loadContent = async () => {
+      const { data } = await supabase.from('content_versions').select('content').order('id', { ascending: false }).limit(1).maybeSingle()
+      return fillDefaults(data?.content ?? DEFAULT_CONTENT, DEFAULT_CONTENT)
+    }
+    const growthInsights = async (question: string) => {
+      const used: { provider?: string; model?: string } = {}
+      const snapshot = await buildSnapshot(supabase, await loadContent(), plan)
+      const r = await runInsights(askJSON, snapshot, question, used)
+      await saveReport('insights', r.reply, { highlights: r.highlights, suggestions: r.suggestions, question, provider: used.provider })
+      return { ...r, kind: 'insights', changes: [], provider: used.provider, model: used.model }
+    }
+    const growthNews = async (focus: string) => {
+      const content = await loadContent()
+      const geminiModels = (await attemptPlan()).filter((a) => a.provider === 'gemini').map((a) => a.model)
+      if (!geminiModels.length && !GROQ_KEY) throw new HttpError(503, 'News needs a Gemini or Groq key (it searches the web).')
+      const generic = /^(any |get |show )?(the )?(latest )?(news|updates?)( for me)?\??$/i.test(focus.trim())
+      const r = await runNews(GEMINI_KEY, GEMINI_KEY ? geminiModels : [], content.profile, generic ? '' : focus, GROQ_KEY)
+      const reply = `Here are ${r.items.length} recent updates that matter for you.`
+      await saveReport('news', reply, { items: r.items, sources: r.sources, focus })
+      return { reply, kind: 'news', news: r.items, sources: r.sources, changes: [], provider: r.model.startsWith('gemini') ? 'gemini' : 'groq', model: r.model }
+    }
+    if (body.action === 'insights') return json(await growthInsights(String(body.question ?? '')))
+    if (body.action === 'news') return json(await growthNews(String(body.focus ?? '')))
     if (body.action === 'transcribe') {
       const audio = String(body.audio ?? '')
       if (!audio) throw new HttpError(400, 'No audio received.')
@@ -465,7 +499,9 @@ Deno.serve(async (req) => {
       return json({ reply: String(route.clarify), changes: [], provider: used.provider, model: used.model, baseVersion: row.id })
     }
     const sections: string[] = (Array.isArray(route?.sections) ? route.sections : [])
-      .filter((s: string) => SECTION_IDS.includes(s) || s === 'money').slice(0, 8)
+      .filter((s: string) => SECTION_IDS.includes(s) || ['money', 'insights', 'news'].includes(s)).slice(0, 8)
+    if (sections.includes('news')) return json(await growthNews(message))
+    if (sections.includes('insights')) return json(await growthInsights(message))
     if (!sections.length) sections.push('site')
     const wantsMoney = sections.includes('money')
     const contentSections = sections.filter((s) => s !== 'money')

@@ -7,9 +7,12 @@ import { useContentStore, pillarOf } from '../lib/content'
 import { useStored } from '../hooks'
 import VoiceButton from './VoiceButton'
 import { insertTransactions, formatMoney } from '../lib/money'
+import { SuggestionList, NewsList } from './Growth'
 import { SECTIONS, SECTION_IDS, getAt, setAt, validateContent, validateSection, diffValues } from '../../supabase/functions/_shared/content-schema.js'
 
 const SUGGESTIONS = [
+  'Analyse my progress and tell me what to focus on this week',
+  'Any news for my career this month?',
   'Spent 1200 rupees on lunch today',
   'How much did I spend on food this month?',
   'What does my Tuesday look like in Plan A?',
@@ -108,6 +111,19 @@ function TxProposal({ m, content, onAdd, onDiscard }) {
   )
 }
 
+const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function'
+
+function speak(text) {
+  if (!canSpeak) return
+  window.speechSynthesis.cancel()
+  const u = new SpeechSynthesisUtterance(text)
+  u.lang = 'en-GB'
+  u.rate = 1
+  const voice = window.speechSynthesis.getVoices().find((v) => /en[-_](GB|US)/i.test(v.lang))
+  if (voice) u.voice = voice
+  window.speechSynthesis.speak(u)
+}
+
 // ---------------------------------------------------------------- chat
 // The plan the user is looking at (synced setting, cached locally per user).
 function currentPlan() {
@@ -135,7 +151,7 @@ async function callAssistant(message, history, onAuthError) {
   return data
 }
 
-function Chat() {
+function Chat({ pending, onPendingDone }) {
   const store = useContentStore()
   const { revalidate, user } = useAuth()
   const [fromVoice, setFromVoice] = useState(false)
@@ -149,6 +165,15 @@ function Chat() {
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, busy])
+
+  // A request sent from elsewhere on the page (e.g. a suggestion's "Do it").
+  useEffect(() => {
+    if (pending?.text && !busy) {
+      send(pending.text)
+      onPendingDone?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending])
 
   const update = (id, patch) => setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, ...patch } : m)))
 
@@ -167,6 +192,10 @@ function Chat() {
         id: crypto.randomUUID(),
         role: 'assistant',
         txs: res.transactions?.length ? res.transactions : undefined,
+        highlights: res.highlights?.length ? res.highlights : undefined,
+        suggestions: res.suggestions?.length ? res.suggestions : undefined,
+        news: res.news?.length ? res.news : undefined,
+        sources: res.sources?.length ? res.sources : undefined,
         txState: res.transactions?.length ? 'proposed' : undefined,
         voice: fromVoice,
         content: res.reply,
@@ -261,7 +290,15 @@ function Chat() {
             {m.txs && (
               <TxProposal m={m} content={store.content} onAdd={() => addTxs(m)} onDiscard={() => update(m.id, { txState: 'discarded' })} />
             )}
-            {m.provider && <span className="via mono">via {m.provider}</span>}
+            {m.highlights && <ul className="ticks chat-ticks">{m.highlights.map((h, i) => <li key={i}>{h}</li>)}</ul>}
+            {m.suggestions && <SuggestionList suggestions={m.suggestions} onDo={(a) => send(a)} />}
+            {m.news && <NewsList items={m.news} sources={m.sources} />}
+            <div className="msg-foot">
+              {m.provider && <span className="via mono">via {m.provider}</span>}
+              {m.role === 'assistant' && canSpeak && !m.error && (
+                <button className="speak-btn" onClick={() => speak([m.content, ...(m.highlights || [])].join('. '))} aria-label="Read aloud">🔊</button>
+              )}
+            </div>
           </div>
         ))}
         {busy && <div className="msg assistant typing"><span /><span /><span /></div>}
@@ -336,7 +373,7 @@ function History() {
 const EDITOR_GROUPS = [
   ['Timetable', (id) => id.startsWith('schedule.') || id === 'plans'],
   ['Site & look', (id) => ['site', 'pillars', 'coreFour', 'fronts'].includes(id)],
-  ['Career', (id) => ['certs', 'english', 'domain', 'roadmap'].includes(id)],
+  ['Career', (id) => ['profile', 'certs', 'english', 'domain', 'roadmap'].includes(id)],
   ['Fiverr', (id) => ['gigs', 'launch', 'fiverrRules', 'levels'].includes(id)],
   ['Content & money', (id) => ['channels', 'contentPipeline', 'contentRules', 'wealthWeeks', 'wealthGuardrails', 'finance'].includes(id)],
   ['Habits & research', (id) => ['scorecard', 'scorecardWin', 'legends', 'principles'].includes(id)],
@@ -400,6 +437,17 @@ export default function Assistant() {
   const { isOwner } = useAuth()
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState('chat')
+  const [pending, setPending] = useState(null)
+
+  useEffect(() => {
+    const onAsk = (e) => {
+      setOpen(true)
+      setTab('chat')
+      setPending({ text: e.detail, at: Date.now() })
+    }
+    window.addEventListener('ascend:ask', onAsk)
+    return () => window.removeEventListener('ascend:ask', onAsk)
+  }, [])
   if (!isOwner) return null
 
   return createPortal(
@@ -430,7 +478,7 @@ export default function Assistant() {
               <button className="ai-close" onClick={() => setOpen(false)} aria-label="Close">✕</button>
             </header>
             <div className="ai-body">
-              {tab === 'chat' && <Chat />}
+              {tab === 'chat' && <Chat pending={pending} onPendingDone={() => setPending(null)} />}
               {tab === 'history' && <History />}
               {tab === 'edit' && <Editor />}
             </div>
