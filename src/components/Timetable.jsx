@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import Section from './Section'
-import { PILLARS } from '../data/pillars'
-import { getSchedule, findCurrent, toMin, blockLen, weeklyHours, DAY_NAMES, PLANS } from '../data/schedule'
+import { getSchedule, findCurrent, toMin, blockLen, weeklyHours, DAY_NAMES } from '../lib/plan'
+import { useContent, pillarOf } from '../lib/content'
 import { fmtDuration } from '../hooks'
 
 const R = 150
@@ -22,6 +22,7 @@ function arcPath(startMin, lenMin, r) {
 }
 
 function DayDial({ blocks, focus, setFocus, nowMin, isToday }) {
+  const content = useContent()
   const shown = blocks.find((b) => b.id === focus) || (isToday ? blocks[findCurrent(blocks, nowMin)] : blocks[1])
   const [nx, ny] = polar(nowMin, R + 26)
   return (
@@ -56,7 +57,7 @@ function DayDial({ blocks, focus, setFocus, nowMin, isToday }) {
               key={b.id}
               d={arcPath(toMin(b.start) + 1.5, Math.max(1, blockLen(b) - 3), R)}
               fill="none"
-              stroke={PILLARS[b.pillar].color}
+              stroke={pillarOf(content, b.pillar).color}
               strokeWidth={active ? 38 : 28}
               strokeOpacity={active ? 1 : b.pillar === 'sleep' ? 0.55 : 0.8}
               filter={active ? 'url(#glow)' : undefined}
@@ -79,7 +80,7 @@ function DayDial({ blocks, focus, setFocus, nowMin, isToday }) {
           <foreignObject x={C - 86} y={C - 70} width="172" height="140">
             <div className="dial-center">
               <span className="dial-time mono">{shown.start} – {shown.end}</span>
-              <b style={{ color: PILLARS[shown.pillar].color }}>{shown.title}</b>
+              <b style={{ color: pillarOf(content, shown.pillar).color }}>{shown.title}</b>
               <span className="dial-len">{fmtDuration(blockLen(shown))}</span>
             </div>
           </foreignObject>
@@ -90,22 +91,24 @@ function DayDial({ blocks, focus, setFocus, nowMin, isToday }) {
 }
 
 function WeeklyHours({ plan }) {
-  const totals = weeklyHours(plan)
-  const keys = ['fiverr', 'career', 'content', 'wealth', 'body', 'mind', 'life', 'office', 'commute', 'sleep']
-  const max = Math.max(...keys.map((k) => totals[k] || 0))
+  const content = useContent()
+  const totals = weeklyHours(content, plan)
+  // Core goals first, then every other category that has time this week.
+  const keys = [...new Set([...content.coreFour, ...Object.keys(content.pillars)])].filter((k) => totals[k])
+  const max = Math.max(1, ...keys.map((k) => totals[k] || 0))
   return (
     <div className="hours glass">
       <div className="hours-head">
         <h3>Your week in hours</h3>
-        <span className="muted">{PLANS[plan].name}</span>
+        <span className="muted">{content.plans[plan].name}</span>
       </div>
       {keys.map((k, i) => (
         <div className="hours-row" key={k}>
-          <span className="hours-label">{PILLARS[k].label}</span>
+          <span className="hours-label">{pillarOf(content, k).label}</span>
           <div className="hours-track">
             <motion.div
               className="hours-fill"
-              style={{ background: PILLARS[k].color }}
+              style={{ background: pillarOf(content, k).color }}
               initial={{ width: 0 }}
               whileInView={{ width: `${((totals[k] || 0) / max) * 100}%` }}
               viewport={{ once: false }}
@@ -116,8 +119,8 @@ function WeeklyHours({ plan }) {
         </div>
       ))}
       <p className="hours-note">
-        Fiverr + career + content + wealth ={' '}
-        <b>{['fiverr', 'career', 'content', 'wealth'].reduce((s, k) => s + (totals[k] || 0), 0).toFixed(1)} hours</b> of
+        {content.coreFour.map((k) => pillarOf(content, k).label).join(' + ')} ={' '}
+        <b>{content.coreFour.reduce((s, k) => s + (totals[k] || 0), 0).toFixed(1)} hours</b> of
         deliberate growth every week, on top of a full-time job.
       </p>
     </div>
@@ -125,11 +128,14 @@ function WeeklyHours({ plan }) {
 }
 
 export default function Timetable({ plan, setPlan, now }) {
+  const content = useContent()
+  const text = content.site.sections.timetable
+  const [sleepLead, ...sleepRest] = content.site.sleepNote.split('. ')
   const today = now.getDay()
   const [day, setDay] = useState(today)
   const [focus, setFocus] = useState(null)
   const [open, setOpen] = useState(null)
-  const blocks = getSchedule(plan, day)
+  const blocks = getSchedule(content, plan, day)
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const isToday = day === today
   const curIdx = isToday ? findCurrent(blocks, nowMin) : -1
@@ -138,9 +144,9 @@ export default function Timetable({ plan, setPlan, now }) {
   return (
     <Section
       id="timetable"
-      kicker="01 · The timetable"
-      title="Every hour has a job"
-      intro="Two protected deep-work blocks a day, the hardest work first, content batched on weekends, and recovery scheduled like a meeting. Tap any block on the dial or the list."
+      kicker={text.kicker}
+      title={text.title}
+      intro={text.intro}
     >
       <div className="tt-controls">
         <div className="days" role="tablist" aria-label="Day">
@@ -151,9 +157,9 @@ export default function Timetable({ plan, setPlan, now }) {
           ))}
         </div>
         <div className="plan-mini">
-          {Object.values(PLANS).map((p) => (
-            <button key={p.key} className={plan === p.key ? 'on' : ''} onClick={() => setPlan(p.key)}>
-              {p.key === 'A' ? 'No bike' : 'Bike + gym'}
+          {['A', 'B'].map((k) => (
+            <button key={k} className={plan === k ? 'on' : ''} onClick={() => setPlan(k)}>
+              {content.plans[k].short}
             </button>
           ))}
         </div>
@@ -163,15 +169,15 @@ export default function Timetable({ plan, setPlan, now }) {
         <div className="tt-left">
           <DayDial blocks={blocks} focus={focus} setFocus={setFocus} nowMin={nowMin} isToday={isToday} />
           <div className="legend">
-            {Object.values(PILLARS).map((p) => (
-              <span key={p.key}><i style={{ background: p.color }} />{p.label}</span>
+            {Object.entries(content.pillars).map(([k, p]) => (
+              <span key={k}><i style={{ background: p.color }} />{p.label}</span>
             ))}
           </div>
         </div>
 
         <ol className="timeline">
           {blocks.map((b, i) => {
-            const c = PILLARS[b.pillar].color
+            const c = pillarOf(content, b.pillar).color
             const isOpen = open === b.id
             return (
               <motion.li
@@ -206,9 +212,7 @@ export default function Timetable({ plan, setPlan, now }) {
       <WeeklyHours plan={plan} />
 
       <div className="callout glass">
-        <b>About the 6 hours of sleep.</b> Your 22:00 → 04:00 window is the same one Franklin used, but research says most
-        adults do best on 7+. That is why the plan includes a weekend nap, Sunday rest, and a lights-out rule that never moves.
-        If your energy drops for a week straight, move the alarm to 04:30 before you give up anything else.
+        {sleepRest.length ? <><b>{sleepLead}.</b> {sleepRest.join('. ')}</> : sleepLead}
       </div>
     </Section>
   )

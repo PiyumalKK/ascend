@@ -1,7 +1,7 @@
 // Android app (Capacitor) integration: status bar, back button, and on-device timetable alarms.
 // Every function is a no-op in the browser, so web code can call them unconditionally.
 import { Capacitor } from '@capacitor/core'
-import { getSchedule, toMin } from '../data/schedule'
+import { getSchedule, toMin } from './plan'
 
 export const isNative = () => Capacitor.isNativePlatform()
 
@@ -77,7 +77,7 @@ async function cancelTimetable(LocalNotifications) {
  * Schedule a weekly repeating alarm for the start of every block, for all 7 days.
  * `leadMinutes` fires that many minutes early ("in 5 min: Deep Work I").
  */
-export async function scheduleTimetable(plan, { enabled = true, leadMinutes = 0 } = {}) {
+export async function scheduleTimetable(content, plan, { enabled = true, leadMinutes = 0 } = {}) {
   if (!isNative()) return 0
   const { LocalNotifications } = await plugins()
   await cancelTimetable(LocalNotifications)
@@ -85,7 +85,7 @@ export async function scheduleTimetable(plan, { enabled = true, leadMinutes = 0 
 
   const notifications = []
   for (let day = 0; day < 7; day++) {
-    getSchedule(plan, day).forEach((b, i) => {
+    getSchedule(content, plan, day).forEach((b, i) => {
       // Fire time, shifted back by the lead and wrapped across midnight into the previous day.
       let mins = toMin(b.start) - leadMinutes
       let weekday = day

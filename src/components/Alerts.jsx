@@ -5,11 +5,14 @@ import {
   isNative, notificationStatus, requestNotificationAccess, openExactAlarmSettings,
   scheduleTimetable, sendTestNotification,
 } from '../lib/native'
-import { PLANS } from '../data/schedule'
+import { useContent } from '../lib/content'
 
 const APK_URL = import.meta.env.VITE_APK_URL || 'https://github.com/PiyumalKK/ascend/releases/latest/download/ASCEND.apk'
 
 function NativeAlerts({ plan }) {
+  const content = useContent()
+  // Reschedule only when the timetable itself changes, not on every content edit.
+  const scheduleKey = JSON.stringify([content.schedule, content.plans])
   // Device-local settings: each phone decides whether it rings.
   const [enabled, setEnabled] = useStored('ascend.alerts.enabled', true)
   const [lead, setLead] = useStored('ascend.alerts.lead', 0)
@@ -23,11 +26,12 @@ function NativeAlerts({ plan }) {
     ;(async () => {
       const s = await notificationStatus()
       if (enabled && s.permission !== 'granted') await requestNotificationAccess()
-      await scheduleTimetable(plan, { enabled, leadMinutes: lead })
+      await scheduleTimetable(content, plan, { enabled, leadMinutes: lead })
       if (alive) refresh()
     })()
     return () => { alive = false }
-  }, [plan, enabled, lead, refresh])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, enabled, lead, refresh, scheduleKey])
 
   useEffect(() => {
     // Returning from Android settings: re-read permission state.
@@ -65,7 +69,7 @@ function NativeAlerts({ plan }) {
           </button>
         ))}
       </div>
-      <p className="muted small">Following {PLANS[plan].name}. Switch plans at the top of the page and the alarms update automatically.</p>
+      <p className="muted small">Following {content.plans[plan].name}. Switch plans at the top of the page and the alarms update automatically.</p>
 
       <div className="alert-actions">
         {status?.permission !== 'granted' && (

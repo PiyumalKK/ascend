@@ -7,3 +7,6 @@ dist
 android/app/build
 *.keystore
 *.jks
+.env.deploy
+supabase/.temp
+supabase/.branches

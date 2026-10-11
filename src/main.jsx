@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import { AuthProvider } from './lib/auth'
+import { ContentProvider } from './lib/content'
 import { initNative } from './lib/native'
 import './styles.css'
 
@@ -15,7 +16,9 @@ if ('serviceWorker' in navigator && import.meta.env.PROD && !window.Capacitor?.i
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <AuthProvider>
-      <App />
+      <ContentProvider>
+        <App />
+      </ContentProvider>
     </AuthProvider>
   </React.StrictMode>,
 )

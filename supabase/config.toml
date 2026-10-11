@@ -1,0 +1,5 @@
+# Supabase CLI configuration (used for deploying edge functions).
+project_id = "ascend"
+
+[functions.assistant]
+verify_jwt = true

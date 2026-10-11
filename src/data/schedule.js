@@ -108,6 +108,12 @@ const sunday = (bike) => [
   { start: '22:00', end: '04:00', ...SLEEP },
 ]
 
+// Raw templates, used to build the default content document (src/data/defaults.js).
+export const RAW_SCHEDULE = {
+  A: { weekday: weekdayA, saturday: saturday(false), sunday: sunday(false) },
+  B: { weekday: weekdayB, saturday: saturday(true), sunday: sunday(true) },
+}
+
 export const PLANS = {
   A: { key: 'A', name: 'Plan A · Now', sub: 'No bike · leave 06:00 · home 18:00' },
   B: { key: 'B', name: 'Plan B · Bike', sub: 'Leave 07:30 · gym every morning' },

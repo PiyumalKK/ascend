@@ -1,14 +1,16 @@
 import { motion } from 'framer-motion'
 import Section from './Section'
-import { PILLARS } from '../data/pillars'
-import { SCORECARD } from '../data/growth'
+import { useContent, pillarOf } from '../lib/content'
 import { dateKey } from '../hooks'
 import { useScorecardLog } from '../lib/store'
 import { ViewOnlyNote } from './Account'
 
-const TOTAL = SCORECARD.length
-
 export default function Scorecard({ now }) {
+  const content = useContent()
+  const SCORECARD = content.scorecard
+  const TOTAL = SCORECARD.length
+  const WIN = Math.min(content.scorecardWin, TOTAL)
+  const text = content.site.sections.scorecard
   const { log, toggle: toggleItem, canEdit } = useScorecardLog(35)
   const todayKey = dateKey(now)
   const today = log[todayKey] || {}
@@ -28,13 +30,13 @@ export default function Scorecard({ now }) {
   // A day counts toward the streak at 7 of 9 or better. Today does not break it until it is over.
   let streak = 0
   for (let i = days.length - 1; i >= 0; i--) {
-    if (days[i].n >= 7) streak++
+    if (days[i].n >= WIN) streak++
     else if (i === days.length - 1) continue
     else break
   }
 
   return (
-    <Section id="scorecard" kicker="05 · Daily scorecard" title="Win the day, nine times" intro="Tick these during your shutdown ritual. Seven out of nine counts as a won day. Synced across your devices.">
+    <Section id="scorecard" kicker={text.kicker} title={text.title} intro={text.intro}>
       <div className="score-grid">
         <div className="glass card">
           <div className="score-head">
@@ -52,7 +54,7 @@ export default function Scorecard({ now }) {
           <ul className="score-list">
             {SCORECARD.map((s) => (
               <li key={s.id}>
-                <label className={today[s.id] ? 'done' : ''} style={{ '--c': PILLARS[s.pillar].color }}>
+                <label className={today[s.id] ? 'done' : ''} style={{ '--c': pillarOf(content, s.pillar).color }}>
                   <input type="checkbox" disabled={!canEdit} checked={!!today[s.id]} onChange={() => toggle(s.id)} />
                   <span className="check" />
                   {s.label}

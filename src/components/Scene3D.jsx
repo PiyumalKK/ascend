@@ -2,7 +2,6 @@ import { useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Float, MeshDistortMaterial, Sparkles, Stars } from '@react-three/drei'
 import * as THREE from 'three'
-import { PILLARS, CORE_FOUR } from '../data/pillars'
 
 // Soft radial glow texture, made once on a canvas so no image assets are needed.
 function useGlowTexture() {
@@ -109,7 +108,7 @@ const ORBITS = [
   { radius: 5.5, speed: 0.16, tilt: [-0.4, 0, -0.1], size: 0.27, offset: 4.7 },
 ]
 
-export default function Scene3D({ accent = '#7c5cff' }) {
+export default function Scene3D({ accent = '#7c5cff', planets = [] }) {
   const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   return (
     <div className="scene" aria-hidden="true">
@@ -122,8 +121,8 @@ export default function Scene3D({ accent = '#7c5cff' }) {
         <pointLight position={[-5, -3, 4]} intensity={70} color="#ff4fd8" />
         <pointLight position={[0, -5, -3]} intensity={50} color={accent} />
         <Core accent={accent} />
-        {CORE_FOUR.map((k, i) => (
-          <Planet key={k} color={PILLARS[k].color} {...ORBITS[i]} />
+        {planets.slice(0, ORBITS.length).map((color, i) => (
+          <Planet key={i} color={color} {...ORBITS[i]} />
         ))}
         <Stars radius={60} depth={40} count={reduced ? 1500 : 4000} factor={3.2} saturation={0.6} fade speed={0.6} />
         <Sparkles count={reduced ? 40 : 120} scale={[14, 8, 14]} size={2.2} speed={0.35} color="#a7c7ff" opacity={0.7} />

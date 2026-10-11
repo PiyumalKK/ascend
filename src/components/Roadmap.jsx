@@ -1,15 +1,17 @@
 import { motion } from 'framer-motion'
 import Section from './Section'
-import { ROADMAP } from '../data/growth'
+import { useContent } from '../lib/content'
 
 export default function Roadmap() {
+  const content = useContent()
+  const text = content.site.sections.roadmap
   return (
-    <Section id="roadmap" kicker="04 · Twelve months" title="The road to October 2027" intro="Targets, not promises. Check them in your Sunday Think Hour and adjust the next quarter, never the vision.">
+    <Section id="roadmap" kicker={text.kicker} title={text.title} intro={text.intro}>
       <div className="road">
         <div className="road-line" />
-        {ROADMAP.map((r, i) => (
+        {content.roadmap.map((r, i) => (
           <motion.div
-            key={r.when}
+            key={`${r.when}-${i}`}
             className={`stop ${i % 2 ? 'right' : 'left'}`}
             initial={{ opacity: 0, x: i % 2 ? 60 : -60, rotateY: i % 2 ? -25 : 25 }}
             whileInView={{ opacity: 1, x: 0, rotateY: 0 }}

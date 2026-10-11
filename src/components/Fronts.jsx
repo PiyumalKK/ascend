@@ -2,19 +2,10 @@ import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import Section, { rise } from './Section'
 import TiltCard from './TiltCard'
-import { PILLARS, CORE_FOUR } from '../data/pillars'
-import { GIGS, LAUNCH, FIVERR_RULES, LEVELS } from '../data/fiverr'
-import { CERTS, ENGLISH, DOMAIN, CONTENT_PIPELINE, CONTENT_RULES, CHANNEL_SUGGESTIONS, WEALTH_WEEKS, WEALTH_GUARDRAILS } from '../data/growth'
 import { daysBetween } from '../hooks'
 import { useCloudState } from '../lib/store'
+import { useContent, pillarOf } from '../lib/content'
 import { ViewOnlyNote } from './Account'
-
-const FRONT_COPY = {
-  career: { headline: 'Become the senior engineer', stat: 'SAA-C03 → Expert', blurb: 'Spoken English, deeper domain knowledge and a certification ladder.' },
-  fiverr: { headline: 'Engineer account, Level 1 in 60 days', stat: '10 gigs · $45 → $1,600', blurb: 'Convert the design account into an engineering one, following PLAN-10.' },
-  content: { headline: 'Four channels, 28 videos a week', stat: 'A · B · C · D', blurb: 'AI-assisted, batched on weekends, original enough to monetize.' },
-  wealth: { headline: 'Research before rupees', stat: '12-week curriculum', blurb: 'E-money, crypto and business models, studied with guardrails.' },
-}
 
 function Ring({ value, color, size = 84 }) {
   const r = 34
@@ -33,12 +24,13 @@ function Ring({ value, color, size = 84 }) {
 }
 
 function Career() {
+  const ct = useContent()
   return (
     <div className="panel-grid">
       <div className="glass card">
         <h3>Certification ladder</h3>
         <ol className="ladder">
-          {CERTS.map((c) => (
+          {ct.certs.map((c) => (
             <li key={c.name} className={`rung ${c.status}`}>
               <span className="rung-dot" />
               <div>
@@ -54,7 +46,7 @@ function Career() {
         <div className="glass card">
           <h3>Spoken English system</h3>
           <ul className="ticks">
-            {ENGLISH.map((e) => (
+            {ct.english.map((e) => (
               <li key={e.t}><b>{e.t}.</b> {e.d}</li>
             ))}
           </ul>
@@ -62,7 +54,7 @@ function Career() {
         <div className="glass card">
           <h3>Domain knowledge, next 12 months</h3>
           <ul className="chips">
-            {DOMAIN.map((d) => <li key={d}>{d}</li>)}
+            {ct.domain.map((d) => <li key={d}>{d}</li>)}
           </ul>
         </div>
       </div>
@@ -72,9 +64,10 @@ function Career() {
 
 function Fiverr({ startKey, setStartKey, now }) {
   const [done, setDone, canEdit] = useCloudState('fiverr.done', {}, { viewOnly: true })
+  const ct = useContent()
   const dayN = daysBetween(startKey, now) + 1
-  const progress = LAUNCH.filter((t) => done[t.id]).length / LAUNCH.length
-  const color = PILLARS.fiverr.color
+  const progress = ct.launch.length ? ct.launch.filter((t) => done[t.id]).length / ct.launch.length : 0
+  const color = pillarOf(ct, 'fiverr').color
   return (
     <div className="panel-grid">
       <div className="glass card">
@@ -93,7 +86,7 @@ function Fiverr({ startKey, setStartKey, now }) {
         </div>
         <ViewOnlyNote />
         <ol className="launch">
-          {LAUNCH.map((t) => {
+          {ct.launch.map((t) => {
             const state = done[t.id] ? 'done' : dayN >= t.day && dayN <= t.end ? 'active' : dayN > t.end ? 'late' : ''
             return (
               <li key={t.id} className={`launch-item ${state}`}>
@@ -113,9 +106,9 @@ function Fiverr({ startKey, setStartKey, now }) {
       </div>
       <div className="stack">
         <div className="glass card">
-          <h3>The ten gigs, in publish order</h3>
+          <h3>The gigs, in publish order</h3>
           <div className="gigs">
-            {GIGS.map((g) => (
+            {ct.gigs.map((g) => (
               <div key={g.id} className={`gig ${g.n > 7 ? 'locked' : ''}`}>
                 <span className="gig-n mono">#{g.n}</span>
                 <div>
@@ -129,9 +122,9 @@ function Fiverr({ startKey, setStartKey, now }) {
         </div>
         <div className="glass card">
           <h3>Rules that rank you</h3>
-          <ul className="ticks">{FIVERR_RULES.map((r) => <li key={r}>{r}</li>)}</ul>
+          <ul className="ticks">{ct.fiverrRules.map((r) => <li key={r}>{r}</li>)}</ul>
           <div className="levels">
-            {LEVELS.map((l) => (
+            {ct.levels.map((l) => (
               <div key={l.name} className="level">
                 <b>{l.name}</b>
                 <small>{l.req}</small>
@@ -147,7 +140,9 @@ function Fiverr({ startKey, setStartKey, now }) {
 
 function Content() {
   const [names, setNames, canEdit] = useCloudState('channels', { A: '', B: '', C: '', D: '' }, { viewOnly: true })
-  const color = PILLARS.content.color
+  const ct = useContent()
+  const color = pillarOf(ct, 'content').color
+  const perDay = ct.channels.videosPerChannelPerDay
   return (
     <div className="panel-grid">
       <div className="stack">
@@ -162,11 +157,11 @@ function Content() {
                 <input
                   readOnly={!canEdit}
                   value={names[k]}
-                  placeholder={CHANNEL_SUGGESTIONS[i]}
+                  placeholder={ct.channels.suggestions[i] || ''}
                   onChange={(e) => setNames({ ...names, [k]: e.target.value })}
                   aria-label={`Channel ${k} name`}
                 />
-                <span className="channel-q mono">7 videos / week</span>
+                <span className="channel-q mono">{7 * perDay} videos / week</span>
               </TiltCard>
             ))}
           </div>
@@ -174,23 +169,20 @@ function Content() {
         <div className="glass card">
           <h3>The weekly math</h3>
           <div className="math">
-            <div><b>4</b><small>channels</small></div>
+            <div><b>4 × {perDay}</b><small>channels × per day</small></div>
             <span>×</span>
             <div><b>7</b><small>days</small></div>
             <span>=</span>
-            <div><b style={{ color }}>28</b><small>videos / week</small></div>
+            <div><b style={{ color }}>{28 * perDay}</b><small>videos / week</small></div>
           </div>
-          <p className="small">
-            Made in two factories: <b>Saturday 08:30–12:00</b> (14 videos) and <b>Sunday 08:00–11:30</b> (14 + schedule all).
-            Weekdays you only check the queue and reply to comments (10 minutes).
-          </p>
+          <p className="small">{ct.channels.batchNote}</p>
         </div>
       </div>
       <div className="stack">
         <div className="glass card">
           <h3>AI production pipeline</h3>
           <ol className="pipeline">
-            {CONTENT_PIPELINE.map((p, i) => (
+            {ct.contentPipeline.map((p, i) => (
               <motion.li key={p.step} variants={rise} initial="hidden" whileInView="show" custom={i} viewport={{ once: true }}>
                 <span className="pipe-n mono">{String(i + 1).padStart(2, '0')}</span>
                 <b>{p.step}</b>
@@ -202,7 +194,7 @@ function Content() {
         </div>
         <div className="glass card warn">
           <h3>Monetization reality check</h3>
-          <ul className="ticks">{CONTENT_RULES.map((r) => <li key={r}>{r}</li>)}</ul>
+          <ul className="ticks">{ct.contentRules.map((r) => <li key={r}>{r}</li>)}</ul>
         </div>
       </div>
     </div>
@@ -210,14 +202,16 @@ function Content() {
 }
 
 function Wealth({ startKey, now }) {
-  const week = Math.min(12, Math.max(1, Math.floor(daysBetween(startKey, now) / 7) + 1))
+  const ct = useContent()
+  const total = ct.wealthWeeks.length
+  const week = Math.min(total, Math.max(1, Math.floor(daysBetween(startKey, now) / 7) + 1))
   return (
     <div className="panel-grid">
       <div className="glass card">
-        <h3>12-week research curriculum</h3>
+        <h3>{total}-week research curriculum</h3>
         <p className="muted small">25 minutes every weeknight, plus a 1-hour Saturday deep dive. You are in week {week}.</p>
         <div className="weeks">
-          {WEALTH_WEEKS.map((w) => (
+          {ct.wealthWeeks.map((w) => (
             <div key={w.w} className={`week ${w.w === week ? 'now' : w.w < week ? 'past' : ''}`}>
               <span className="mono">W{w.w}</span>
               <b>{w.t}</b>
@@ -228,20 +222,23 @@ function Wealth({ startKey, now }) {
       </div>
       <div className="glass card warn">
         <h3>Guardrails, non-negotiable</h3>
-        <ul className="ticks">{WEALTH_GUARDRAILS.map((g) => <li key={g}>{g}</li>)}</ul>
+        <ul className="ticks">{ct.wealthGuardrails.map((g) => <li key={g}>{g}</li>)}</ul>
       </div>
     </div>
   )
 }
 
 export default function Fronts({ startKey, setStartKey, now }) {
-  const [tab, setTab] = useState('fiverr')
+  const ct = useContent()
+  const [picked, setTab] = useState('fiverr')
+  const tab = ct.coreFour.includes(picked) ? picked : ct.coreFour[0]
+  const text = ct.site.sections.fronts
   return (
-    <Section id="fronts" kicker="02 · The four fronts" title="Where the hours go" intro="Each front has a plan you can tick off. Progress saves in this browser.">
+    <Section id="fronts" kicker={text.kicker} title={text.title} intro={text.intro}>
       <div className="front-tabs">
-        {CORE_FOUR.map((k, i) => {
-          const p = PILLARS[k]
-          const f = FRONT_COPY[k]
+        {ct.coreFour.map((k, i) => {
+          const p = pillarOf(ct, k)
+          const f = ct.fronts[k] || { headline: p.label, stat: '', blurb: '' }
           return (
             <motion.div key={k} variants={rise} initial="hidden" whileInView="show" custom={i} viewport={{ once: true }}>
               <TiltCard className={`front ${tab === k ? 'on' : ''}`} style={{ '--c': p.color }} onClick={() => setTab(k)} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setTab(k)}>
@@ -256,11 +253,14 @@ export default function Fronts({ startKey, setStartKey, now }) {
         })}
       </div>
       <AnimatePresence mode="wait">
-        <motion.div key={tab} className="front-panel" style={{ '--c': PILLARS[tab].color }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.35 }}>
+        <motion.div key={tab} className="front-panel" style={{ '--c': pillarOf(ct, tab).color }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.35 }}>
           {tab === 'career' && <Career />}
           {tab === 'fiverr' && <Fiverr startKey={startKey} setStartKey={setStartKey} now={now} />}
           {tab === 'content' && <Content />}
           {tab === 'wealth' && <Wealth startKey={startKey} now={now} />}
+          {!['career', 'fiverr', 'content', 'wealth'].includes(tab) && (
+            <div className="glass card"><p className="muted">This goal has no detail panel yet. Ask me to build one.</p></div>
+          )}
         </motion.div>
       </AnimatePresence>
     </Section>
