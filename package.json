@@ -1,0 +1,32 @@
+{
+  "name": "ascend-life-os",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "9.122.0",
+    "@react-three/fiber": "8.18.0",
+    "@supabase/supabase-js": "^2.117.3",
+    "framer-motion": "11.18.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "three": "0.170.0",
+    "workbox-core": "^7.4.1",
+    "workbox-expiration": "^7.4.1",
+    "workbox-precaching": "^7.4.1",
+    "workbox-routing": "^7.4.1",
+    "workbox-strategies": "^7.4.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "vite": "5.4.21",
+    "vite-plugin-pwa": "^2.0.0",
+    "workbox-build": "^7.4.1",
+    "workbox-window": "^7.4.1"
+  }
+}

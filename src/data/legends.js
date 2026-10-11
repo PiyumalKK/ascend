@@ -1,0 +1,102 @@
+// Research: how successful men structure their days, and where each habit lives in this plan.
+// Habits are widely reported in biographies and interviews; treat them as patterns, not exact clocks.
+
+export const LEGENDS = [
+  {
+    name: 'Benjamin Franklin',
+    role: 'Founding father, inventor, printer',
+    wake: '05:00',
+    habit: 'His famous daily schedule bookends the day with two questions: “What good shall I do this day?” in the morning and “What good have I done to-day?” at night. His chart marks the night hours from 10 to 4 for sleep.',
+    yours: 'Your 22:00–04:00 sleep window matches his chart. His evening question opens your nightly shutdown ritual.',
+    quote: 'Lost time is never found again.',
+  },
+  {
+    name: 'Jocko Willink',
+    role: 'Navy SEAL commander, author',
+    wake: '04:30',
+    habit: 'Posts a photo of his watch every morning to prove he got up before dawn. He treats discipline as the thing that creates freedom.',
+    yours: 'Your 04:00 alarm and the “no snooze, feet on floor in 5 seconds” rule.',
+    quote: 'Discipline equals freedom.',
+  },
+  {
+    name: 'Tim Cook',
+    role: 'CEO, Apple',
+    wake: '~04:00',
+    habit: 'Reportedly up before 4 AM, reads customer feedback, then exercises before the work day starts.',
+    yours: 'Plan B: deep work, then the gym, then the office, all before most people start their day.',
+    quote: null,
+  },
+  {
+    name: 'Kobe Bryant',
+    role: '5× NBA champion',
+    wake: '~04:00',
+    habit: 'Famous for training before dawn so he had more practice hours than anyone else by the end of a season. The “Mamba Mentality”.',
+    yours: 'Deep Work I at 04:10. Two extra hours a day adds up to roughly 500 extra hours a year.',
+    quote: 'Rest at the end, not in the middle.',
+  },
+  {
+    name: 'Warren Buffett',
+    role: 'Investor, Berkshire Hathaway',
+    wake: '~06:45',
+    habit: 'Spends most of his day reading and thinking. He credits compounding knowledge, not trading activity, for his returns.',
+    yours: 'Daily wealth research plus a Sunday book hour. Read before you buy anything.',
+    quote: 'The more you learn, the more you earn.',
+  },
+  {
+    name: 'Charlie Munger',
+    role: 'Buffett’s partner, polymath',
+    wake: '—',
+    habit: 'Built a “latticework of mental models” from many disciplines and believed in becoming a little wiser every single day.',
+    yours: 'The scorecard: small daily wins that compound over years.',
+    quote: 'Spend each day trying to be a little wiser than you were when you woke up.',
+  },
+  {
+    name: 'Bill Gates',
+    role: 'Co-founder, Microsoft',
+    wake: '—',
+    habit: 'Takes “Think Weeks” alone with a stack of papers and books to step back from daily work and think about the big picture. Reads around 50 books a year.',
+    yours: 'Sunday 14:00 Think Hour: weekly review, roadmap check, next week’s 3 big rocks.',
+    quote: 'Most people overestimate what they can do in one year and underestimate what they can do in ten years.',
+  },
+  {
+    name: 'Jeff Bezos',
+    role: 'Founder, Amazon',
+    wake: '~06:30',
+    habit: 'Protects 8 hours of sleep and schedules high-stakes decisions for the morning, when his mind is sharpest.',
+    yours: 'The hardest work goes in your morning block, and lights-out at 22:00 is non-negotiable.',
+    quote: 'Your brand is what people say about you when you’re not in the room.',
+  },
+  {
+    name: 'Elon Musk & Cal Newport',
+    role: 'Founder / Deep Work author',
+    wake: '—',
+    habit: 'Both plan the whole day in time blocks. Newport’s research: focused, uninterrupted deep work is the most valuable skill in the knowledge economy.',
+    yours: 'This timetable. Every hour has a job, with two protected deep-work blocks every day.',
+    quote: 'Clarity about what matters provides clarity about what does not.',
+  },
+  {
+    name: 'Naval Ravikant',
+    role: 'Founder, AngelList',
+    wake: '—',
+    habit: 'Wealth comes from specific knowledge plus leverage: code and media are leverage that works while you sleep.',
+    yours: 'Fiverr (your specific knowledge, sold) plus 4 channels (media leverage). This is exactly his formula.',
+    quote: 'Learn to sell. Learn to build. If you can do both, you will be unstoppable.',
+  },
+  {
+    name: 'Marcus Aurelius',
+    role: 'Roman emperor, Stoic',
+    wake: 'Dawn',
+    habit: 'Wrote private reflections each day to prepare his mind for the day’s difficulties.',
+    yours: 'Your morning stillness and prayer. Prepare the mind before the phone opens.',
+    quote: 'You have power over your mind, not outside events.',
+  },
+]
+
+export const PRINCIPLES = [
+  { k: 'Same wake time, 7 days', v: 'Every legend above with an early start keeps it on weekends. Your body learns 04:00 in about three weeks.' },
+  { k: 'Hardest thing first', v: 'Willpower is highest after sleep. Deep Work I happens before email, social media or the office.' },
+  { k: 'Batch, don’t scatter', v: '28 videos made in two weekend factories beat 4 rushed videos every evening.' },
+  { k: 'Protect recovery', v: 'Scheduled rest is what separates people who last from people who burn out by month two.' },
+  { k: 'Measure daily', v: 'What gets scored gets done. Tick the scorecard every night.' },
+  { k: 'Compound everything', v: 'Reviews, followers, certs, savings: all compound. Consistency beats intensity.' },
+]
