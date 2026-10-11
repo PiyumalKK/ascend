@@ -75,6 +75,8 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$BT/apksigner" verify --print-certs "$APK" | head -3
           cp "$APK" "ASCEND-$VERSION_NAME.apk"
+          # Stable name so /releases/latest/download/ASCEND.apk always serves the newest build.
+          cp "$APK" "ASCEND.apk"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -86,7 +88,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$VERSION_NAME" "ASCEND-$VERSION_NAME.apk" \
+          gh release create "v$VERSION_NAME" "ASCEND-$VERSION_NAME.apk" "ASCEND.apk" \
             --title "ASCEND $VERSION_NAME" \
             --notes "Android build of ${GITHUB_SHA::7}. Install over the previous version; your data stays in your account." \
             --latest

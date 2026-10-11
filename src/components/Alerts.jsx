@@ -7,7 +7,7 @@ import {
 } from '../lib/native'
 import { PLANS } from '../data/schedule'
 
-const APK_URL = import.meta.env.VITE_APK_URL || 'https://github.com/PiyumalKK/ascend/releases/latest'
+const APK_URL = import.meta.env.VITE_APK_URL || 'https://github.com/PiyumalKK/ascend/releases/latest/download/ASCEND.apk'
 
 function NativeAlerts({ plan }) {
   // Device-local settings: each phone decides whether it rings.
@@ -92,11 +92,14 @@ function WebApps() {
         <h3>Android app</h3>
         <p className="muted small">The full ASCEND app with exact on-device alarms for every block of your day.</p>
         <ol className="steps">
-          <li>Download the latest <b>ASCEND-x.y.z.apk</b> on your phone.</li>
+          <li>Tap <b>Download APK</b> on your Android phone.</li>
           <li>Open it and allow <b>Install unknown apps</b> for your browser when Android asks.</li>
           <li>Open ASCEND, sign in, and allow notifications and exact alarms.</li>
         </ol>
-        <a className="btn primary" href={APK_URL} target="_blank" rel="noreferrer">Download APK</a>
+        <div className="alert-actions">
+          <a className="btn primary" href={APK_URL}>Download APK</a>
+          <a className="btn ghost" href="https://github.com/PiyumalKK/ascend/releases" target="_blank" rel="noreferrer">All versions</a>
+        </div>
       </div>
       <div className="glass card">
         <h3>Install the web app</h3>
