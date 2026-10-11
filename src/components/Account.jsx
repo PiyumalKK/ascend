@@ -18,14 +18,22 @@ function SignInModal({ onClose }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [showPw, setShowPw] = useState(false)
   const first = useRef(null)
+  // The parent re-renders every second (live clock), so onClose changes identity each tick.
+  // Keep it in a ref so the effects below run only once, on open.
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
 
   useEffect(() => {
     first.current?.focus()
-    const onKey = (e) => e.key === 'Escape' && onClose()
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && closeRef.current()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [])
 
   async function submit(e) {
     e.preventDefault()
@@ -66,7 +74,12 @@ function SignInModal({ onClose }) {
         </label>
         <label className="field">
           <span>Password</span>
-          <input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <div className="pw-wrap">
+            <input type={showPw ? 'text' : 'password'} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            <button type="button" className="pw-toggle" onClick={() => setShowPw(!showPw)} aria-label={showPw ? 'Hide password' : 'Show password'}>
+              {showPw ? 'Hide' : 'Show'}
+            </button>
+          </div>
         </label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="modal-actions">

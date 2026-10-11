@@ -458,3 +458,7 @@ label:has(input:disabled) { cursor: default; }
 a.btn { display: inline-block; text-decoration: none; }
 /* Native app: keep content clear of the status bar */
 html.native .nav { padding-top: calc(10px + env(safe-area-inset-top)); }
+.pw-wrap { position: relative; }
+.pw-wrap input { width: 100%; padding-right: 70px; }
+.pw-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: rgba(255, 255, 255, 0.07); color: var(--muted); border-radius: 8px; padding: 6px 10px; font-size: 0.78rem; cursor: pointer; }
+.pw-toggle:hover { color: var(--ink); }
