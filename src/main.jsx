@@ -2,7 +2,10 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import { AuthProvider } from './lib/auth'
+import { initNative } from './lib/native'
 import './styles.css'
+
+initNative()
 
 // Service worker: browsers only. The Android app (Capacitor) uses native notifications instead.
 if ('serviceWorker' in navigator && import.meta.env.PROD && !window.Capacitor?.isNativePlatform?.()) {

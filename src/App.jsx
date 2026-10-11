@@ -6,6 +6,7 @@ import Fronts from './components/Fronts'
 import Legends from './components/Legends'
 import Roadmap from './components/Roadmap'
 import Scorecard from './components/Scorecard'
+import Alerts from './components/Alerts'
 import { PILLARS } from './data/pillars'
 import { useNow } from './hooks'
 import { useCloudState } from './lib/store'
@@ -20,6 +21,7 @@ const LINKS = [
   ['legends', 'Legends'],
   ['roadmap', 'Roadmap'],
   ['scorecard', 'Scorecard'],
+  ['alerts', 'App'],
 ]
 
 function Nav({ now, color }) {
@@ -70,6 +72,7 @@ export default function App() {
         <Legends />
         <Roadmap />
         <Scorecard now={now} />
+        <Alerts plan={plan} />
       </main>
       <footer className="footer">
         <p className="footer-quote">“Discipline equals freedom.”</p>

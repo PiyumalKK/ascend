@@ -432,3 +432,29 @@ label:has(input:disabled) { cursor: default; }
   .account-btn { padding: 8px; }
   .nav { gap: 10px; }
 }
+
+/* ---------- apps & alerts ---------- */
+.alerts { max-width: 760px; }
+.alerts-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.alerts-head p { margin: 0; }
+.alert-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+.alert-stats div { padding: 14px; border-radius: 14px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.alert-stats b { font-family: var(--display); font-size: 1.3rem; }
+.alert-stats small { color: var(--muted); font-size: 0.78rem; }
+.good { color: #1dbf73; }
+.bad { color: #ff6b6b; }
+.lead { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.lead button { border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04); border-radius: 10px; padding: 7px 12px; cursor: pointer; font-size: 0.85rem; color: var(--muted); }
+.lead button.on { color: #fff; background: rgba(124, 92, 255, 0.35); border-color: rgba(255, 255, 255, 0.2); }
+.alert-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.warn-text { color: #ffc857; margin: 14px 0 0; }
+.switch { position: relative; width: 52px; height: 30px; flex: none; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; }
+.switch span { position: absolute; inset: 0; border-radius: 99px; background: rgba(255, 255, 255, 0.12); transition: background 0.25s; }
+.switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform 0.25s; }
+.switch input:checked + span { background: linear-gradient(135deg, #8f7bff, #4cc9f0); }
+.switch input:checked + span::after { transform: translateX(22px); }
+.steps { margin: 0 0 18px; padding-left: 20px; color: #c9cfee; display: grid; gap: 8px; font-size: 0.93rem; }
+a.btn { display: inline-block; text-decoration: none; }
+/* Native app: keep content clear of the status bar */
+html.native .nav { padding-top: calc(10px + env(safe-area-inset-top)); }

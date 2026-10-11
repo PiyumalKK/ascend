@@ -1,0 +1,17 @@
+{
+  "appId": "com.piyumal.ascend",
+  "appName": "ASCEND",
+  "webDir": "dist",
+  "backgroundColor": "#04050d",
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_ascend",
+      "iconColor": "#8F7BFF"
+    }
+  }
+}
