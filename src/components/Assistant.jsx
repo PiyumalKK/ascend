@@ -70,7 +70,7 @@ function ChangeView({ change, content }) {
 }
 
 // ---------------------------------------------------------------- chat
-async function callAssistant(message, history) {
+async function callAssistant(message, history, onAuthError) {
   const { data, error } = await supabase.functions.invoke('assistant', { body: { message, history } })
   if (error) {
     let msg = error.message
@@ -80,6 +80,7 @@ async function callAssistant(message, history) {
     } catch {
       /* keep generic message */
     }
+    if (error.context?.status === 401) onAuthError?.()
     throw new Error(msg)
   }
   return data
@@ -87,6 +88,7 @@ async function callAssistant(message, history) {
 
 function Chat() {
   const store = useContentStore()
+  const { revalidate } = useAuth()
   const [messages, setMessages] = useStored('ascend.chat.v1', [])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -107,7 +109,7 @@ function Chat() {
     setInput('')
     setBusy(true)
     try {
-      const res = await callAssistant(message, history)
+      const res = await callAssistant(message, history, revalidate)
       setMessages((ms) => [...ms, {
         id: crypto.randomUUID(),
         role: 'assistant',

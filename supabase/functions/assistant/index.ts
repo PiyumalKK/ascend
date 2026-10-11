@@ -243,7 +243,7 @@ Deno.serve(async (req) => {
     })
     const { data: auth } = await supabase.auth.getUser()
     const email = auth?.user?.email?.toLowerCase()
-    if (!email) throw new HttpError(401, 'Please sign in.')
+    if (!email) throw new HttpError(401, 'Your session has expired. Please sign in again.')
     if (email !== OWNER_EMAIL) throw new HttpError(403, 'Only the owner can use the assistant.')
 
     const body = await req.json().catch(() => ({}))

@@ -546,3 +546,5 @@ ul.form-error { margin: 0; padding-left: 18px; }
   .ai-panel { inset: 0; width: 100%; border-radius: 0; padding-top: env(safe-area-inset-top); }
   .ai-fab { right: 16px; width: 54px; height: 54px; }
 }
+.account-btn.expired { border-color: rgba(255, 200, 87, 0.6); color: #ffc857; animation: pulse-c 2s infinite; }
+@media (max-width: 600px) { .account-btn.expired .account-label { display: inline; font-size: 0.75rem; } }

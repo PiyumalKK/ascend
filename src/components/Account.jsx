@@ -93,7 +93,7 @@ function SignInModal({ onClose }) {
 }
 
 export default function Account() {
-  const { enabled, ready, isOwner, user, signOut } = useAuth()
+  const { enabled, ready, isOwner, user, signOut, expired } = useAuth()
   const status = useSyncStatus()
   const [open, setOpen] = useState(false)
   const [menu, setMenu] = useState(false)
@@ -120,11 +120,11 @@ export default function Account() {
           </AnimatePresence>
         </div>
       ) : (
-        <button className="account-btn" onClick={() => setOpen(true)}>
+        <button className={`account-btn ${expired ? 'expired' : ''}`} onClick={() => setOpen(true)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
             <rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
           </svg>
-          <span className="account-label">Sign in</span>
+          <span className="account-label">{expired ? 'Session expired · Sign in' : 'Sign in'}</span>
         </button>
       )}
       {createPortal(<AnimatePresence>{open && <SignInModal onClose={() => setOpen(false)} />}</AnimatePresence>, document.body)}
