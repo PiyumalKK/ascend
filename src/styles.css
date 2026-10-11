@@ -646,3 +646,17 @@ select optgroup { color: #8f7bff; font-style: normal; font-weight: 600; }
 .msg-foot .via { margin-top: 0; }
 .speak-btn { border: 0; background: rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 0.85rem; }
 @media (max-width: 600px) { .sugg { grid-template-columns: 30px 1fr; } .sugg .btn { grid-column: 2; justify-self: start; } }
+
+/* ---------- live voice bar ---------- */
+.voice-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; font-size: 0.88rem; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); flex-wrap: wrap; }
+.voice-bar.live { background: rgba(255, 77, 109, 0.12); border-color: rgba(255, 77, 109, 0.5); }
+.voice-bar.live .btn { margin-left: auto; }
+.voice-bar.ok { color: #7ee2b0; border-color: rgba(29, 191, 115, 0.4); }
+.voice-bar.err { color: #ffb3b3; border-color: rgba(255, 107, 107, 0.45); }
+.voice-bar.err .link-btn { margin-left: auto; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4d6d; box-shadow: 0 0 0 0 rgba(255, 77, 109, 0.7); animation: pulse 1.4s infinite; }
+.vlevel { display: inline-flex; align-items: center; gap: 3px; height: 22px; }
+.vlevel i { display: block; width: 4px; height: 22px; border-radius: 2px; background: #ff8fa3; transform-origin: center; transform: scaleY(0.15); transition: transform 0.08s linear; }
+.vlevel.pulse i { animation: lvl 0.9s ease-in-out infinite; }
+@keyframes lvl { 0%, 100% { transform: scaleY(0.2); } 50% { transform: scaleY(0.9); } }
+.mic-btn.recording { animation: pulse 1.4s infinite; }

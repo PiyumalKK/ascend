@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useContentStore, pillarOf } from '../lib/content'
 import { useStored } from '../hooks'
-import VoiceButton from './VoiceButton'
+import { useVoiceControls } from './VoiceButton'
 import { insertTransactions, formatMoney } from '../lib/money'
 import { SuggestionList, NewsList } from './Growth'
 import { SECTIONS, SECTION_IDS, getAt, setAt, validateContent, validateSection, diffValues } from '../../supabase/functions/_shared/content-schema.js'
@@ -158,9 +158,19 @@ function Chat({ pending, onPendingDone }) {
   const [messages, setMessages] = useStored('ascend.chat.v1', [])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [voiceError, setVoiceError] = useState('')
   const listRef = useRef(null)
   const inputRef = useRef(null)
+  const inputValue = useRef('')
+  inputValue.current = input
+  const voice = useVoiceControls({
+    disabled: busy,
+    getText: () => inputValue.current,
+    setText: (t) => {
+      setFromVoice(true)
+      setInput(t)
+    },
+    onDone: () => inputRef.current?.focus(),
+  })
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
@@ -303,12 +313,9 @@ function Chat({ pending, onPendingDone }) {
         ))}
         {busy && <div className="msg assistant typing"><span /><span /><span /></div>}
       </div>
+      {voice.bar}
       <form className="chat-input" onSubmit={(e) => { e.preventDefault(); send(input) }}>
-        <VoiceButton
-          disabled={busy}
-          onText={(t) => { setVoiceError(''); setFromVoice(true); setInput((v) => (v ? `${v} ${t}` : t)); inputRef.current?.focus() }}
-          onError={setVoiceError}
-        />
+        {voice.button}
         <textarea
           ref={inputRef}
           rows={1}
@@ -320,7 +327,6 @@ function Chat({ pending, onPendingDone }) {
         />
         <button className="btn primary" disabled={busy || !input.trim()} aria-label="Send">➤</button>
       </form>
-      {voiceError && <p className="form-error small">{voiceError}</p>}
       {messages.length > 0 && <button className="link-btn" onClick={() => setMessages([])}>Clear chat</button>}
     </div>
   )

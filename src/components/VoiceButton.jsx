@@ -1,113 +1,95 @@
 import { useEffect, useRef, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useVoiceInput } from '../lib/voice'
 
-const MAX_SECONDS = 60
-
-function pickMime() {
-  const options = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
-  return options.find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || ''
-}
-
-function toBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () => resolve(String(r.result).split(',')[1] || '')
-    r.onerror = reject
-    r.readAsDataURL(blob)
-  })
-}
+const BARS = 7
 
 /**
- * Tap to record, tap again to stop. The recording is transcribed on the server
- * (Whisper on Groq, Gemini fallback) and handed to `onText`. Works in browsers and the Android app.
+ * Mic button + status bar. Text is written into the message box live via `setText`.
+ * `getText` returns the current box text so speech is appended to what was typed.
  */
-export default function VoiceButton({ onText, onError, disabled }) {
-  const [state, setState] = useState('idle') // idle | recording | transcribing
-  const [seconds, setSeconds] = useState(0)
-  const rec = useRef(null)
-  const timer = useRef(null)
+export function useVoiceControls({ getText, setText, onDone, disabled }) {
+  const base = useRef('')
+  const [done, setDone] = useState(false)
+  const voice = useVoiceInput({
+    onText: (t, isFinal) => {
+      setText(base.current ? `${base.current} ${t}` : t)
+      if (isFinal) {
+        setDone(true)
+        onDone?.()
+      }
+    },
+  })
+  const active = voice.state !== 'idle'
 
-  useEffect(() => () => {
-    clearInterval(timer.current)
-    rec.current?.stream?.getTracks().forEach((t) => t.stop())
-  }, [])
+  useEffect(() => {
+    if (!done) return
+    const id = setTimeout(() => setDone(false), 4000)
+    return () => clearTimeout(id)
+  }, [done])
 
-  async function start() {
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      onError?.('Voice input is not supported on this device.')
+  function toggle() {
+    if (active) {
+      voice.stop()
       return
     }
-    let stream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    } catch {
-      onError?.('Microphone permission was denied. Allow it in your browser or app settings.')
-      return
-    }
-    const mime = pickMime()
-    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined)
-    const chunks = []
-    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data)
-    recorder.onstop = async () => {
-      clearInterval(timer.current)
-      stream.getTracks().forEach((t) => t.stop())
-      const blob = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' })
-      if (blob.size < 1500) {
-        setState('idle')
-        return
-      }
-      setState('transcribing')
-      try {
-        const audio = await toBase64(blob)
-        const { data, error } = await supabase.functions.invoke('assistant', { body: { action: 'transcribe', audio, mime: blob.type } })
-        if (error) {
-          let msg = error.message
-          try { msg = (await error.context.json()).error || msg } catch { /* keep */ }
-          throw new Error(msg)
-        }
-        if (data?.text) onText(data.text)
-        else onError?.('I could not hear anything. Try again a bit closer to the mic.')
-      } catch (e) {
-        onError?.(e.message)
-      } finally {
-        setState('idle')
-      }
-    }
-    rec.current = recorder
-    rec.current.stream = stream
-    recorder.start()
-    setSeconds(0)
-    setState('recording')
-    timer.current = setInterval(() => {
-      setSeconds((s) => {
-        if (s + 1 >= MAX_SECONDS) recorder.state === 'recording' && recorder.stop()
-        return s + 1
-      })
-    }, 1000)
+    base.current = getText().trim()
+    setDone(false)
+    voice.start()
   }
 
-  function stop() {
-    if (rec.current?.state === 'recording') rec.current.stop()
-  }
+  // Bars react to the live mic level; the native engine has no level, so they pulse instead.
+  const bars = Array.from({ length: BARS }, (_, i) => {
+    const centre = 1 - Math.abs(i - (BARS - 1) / 2) / BARS
+    return voice.level ? Math.max(0.15, Math.min(1, voice.level * 1.6 * centre + 0.1)) : null
+  })
 
-  return (
-    <button
-      type="button"
-      className={`mic-btn ${state}`}
-      disabled={disabled || state === 'transcribing'}
-      onClick={state === 'recording' ? stop : start}
-      aria-label={state === 'recording' ? 'Stop recording' : 'Speak'}
-      title={state === 'recording' ? 'Tap to stop' : 'Tap and speak'}
-    >
-      {state === 'recording' ? (
-        <span className="mic-time mono">{String(Math.floor(seconds / 60)).padStart(1, '0')}:{String(seconds % 60).padStart(2, '0')}</span>
-      ) : state === 'transcribing' ? (
-        <span className="mic-spin" />
-      ) : (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-          <rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-        </svg>
-      )}
-    </button>
-  )
+  return {
+    button: (
+      <button
+        type="button"
+        className={`mic-btn ${active ? 'recording' : ''}`}
+        disabled={disabled || voice.state === 'transcribing' || !voice.engine}
+        onClick={toggle}
+        aria-label={active ? 'Stop listening' : 'Speak'}
+        title={voice.engine ? (active ? 'Tap to stop' : 'Tap and speak') : 'Voice input is not supported here'}
+      >
+        {active ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+          </svg>
+        )}
+      </button>
+    ),
+    bar: (
+      <>
+        {voice.state === 'starting' && (
+          <div className="voice-bar" role="status"><span className="mic-spin" /> Starting the microphone… allow access if asked</div>
+        )}
+        {voice.state === 'listening' && (
+          <div className="voice-bar live" role="status" aria-live="polite">
+            <span className="rec-dot" />
+            <b>Listening… speak now</b>
+            <span X aria-hidden="true">
+              {bars.map((h, i) => <i key={i} style={h != null ? { transform: `scaleY(${h})` } : { animationDelay: `${i * 0.1}s` }} />)}
+            </span>
+            <button type="button" className="btn ghost sm" onClick={voice.stop}>Stop</button>
+          </div>
+        )}
+        {voice.state === 'transcribing' && (
+          <div className="voice-bar" role="status"><span className="mic-spin" /> Turning your voice into text…</div>
+        )}
+        {done && voice.state === 'idle' && (
+          <div className="voice-bar ok" role="status">✓ Done. Check the text, then press send ➤</div>
+        )}
+        {voice.error && (
+          <div className="voice-bar err" role="alert">
+            {voice.error}
+            <button type="button" className="link-btn" onClick={voice.clearError}>Dismiss</button>
+          </div>
+        )}
+      </>
+    ),
+  }
 }

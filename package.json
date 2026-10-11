@@ -10,6 +10,7 @@
     "gen:defaults": "esbuild scripts/gen-defaults.mjs --bundle --platform=node --format=esm --log-level=warning --outfile=node_modules/.cache/gen-defaults.mjs && node node_modules/.cache/gen-defaults.mjs"
   },
   "dependencies": {
+    "@capacitor-community/speech-recognition": "7.0.1",
     "@capacitor/android": "7.6.9",
     "@capacitor/app": "7.1.2",
     "@capacitor/core": "7.6.9",
