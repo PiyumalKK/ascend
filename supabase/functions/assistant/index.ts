@@ -27,7 +27,7 @@ const GEMINI_CANDIDATES = [Deno.env.get('GEMINI_MODEL'), 'gemini-flash-latest', 
   .filter(Boolean) as string[]
 const GROQ_CANDIDATES = [Deno.env.get('GROQ_MODEL'), 'openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'moonshotai/kimi-k2-instruct-0905', 'qwen/qwen3-32b', 'openai/gpt-oss-20b']
   .filter(Boolean) as string[]
-const CALL_TIMEOUT_MS = 60_000
+const CALL_TIMEOUT_MS = 45_000
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -51,7 +51,7 @@ type Effort = 'low' | 'medium'
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const RETRYABLE = new Set([429, 500, 502, 503, 504])
 
-async function callGemini(model: string, system: string, messages: Msg[]): Promise<string> {
+async function callGemini(model: string, system: string, messages: Msg[], maxTokens = 8192): Promise<string> {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
     signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
@@ -59,7 +59,7 @@ async function callGemini(model: string, system: string, messages: Msg[]): Promi
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 16384 },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: maxTokens },
     }),
   })
   if (!res.ok) throw new HttpError(res.status, `${res.status} ${(await res.text()).slice(0, 200)}`)
@@ -69,7 +69,7 @@ async function callGemini(model: string, system: string, messages: Msg[]): Promi
   return text
 }
 
-async function callGroq(model: string, system: string, messages: Msg[], jsonMode = true, effort: Effort = 'low'): Promise<string> {
+async function callGroq(model: string, system: string, messages: Msg[], jsonMode = true, effort: Effort = 'low', maxTokens = 4096): Promise<string> {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
@@ -77,7 +77,8 @@ async function callGroq(model: string, system: string, messages: Msg[], jsonMode
     body: JSON.stringify({
       model,
       temperature: 0.2,
-      max_completion_tokens: 8192,
+      // Groq's free tier counts this cap against its per-request token limit, so keep it tight.
+      max_completion_tokens: maxTokens,
       ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: effort } : {}),
       ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
       messages: [{ role: 'system', content: system }, ...messages],
@@ -86,7 +87,7 @@ async function callGroq(model: string, system: string, messages: Msg[], jsonMode
   if (!res.ok) {
     const text = await res.text()
     // Some models reject JSON mode; retry the same model without it.
-    if (res.status === 400 && jsonMode && /response_format|json/i.test(text)) return callGroq(model, system, messages, false, effort)
+    if (res.status === 400 && jsonMode && /response_format|json/i.test(text)) return callGroq(model, system, messages, false, effort, maxTokens)
     throw new HttpError(res.status, `${res.status} ${text.slice(0, 200)}`)
   }
   const data = await res.json()
@@ -115,6 +116,16 @@ function availableModels(provider: 'gemini' | 'groq'): Promise<Set<string> | nul
 
 type Attempt = { provider: 'gemini' | 'groq'; model: string }
 
+// Circuit breaker: models that are out of quota, retired or hanging are skipped for a while.
+const deadUntil = new Map<string, number>()
+const isDead = (a: Attempt) => (deadUntil.get(`${a.provider}/${a.model}`) ?? 0) > Date.now()
+function markFailure(a: Attempt, status: number, message: string) {
+  const key = `${a.provider}/${a.model}`
+  if (status === 404 || (status === 429 && /quota/i.test(message))) deadUntil.set(key, Date.now() + 30 * 60_000)
+  else if (/timed out|timeout|abort/i.test(message)) deadUntil.set(key, Date.now() + 10 * 60_000)
+}
+
+let DIAG_ALL = false
 async function attemptPlan(): Promise<Attempt[]> {
   const order: ('gemini' | 'groq')[] = PRIMARY === 'groq' ? ['groq', 'gemini'] : ['gemini', 'groq']
   const plan: Attempt[] = []
@@ -123,22 +134,31 @@ async function attemptPlan(): Promise<Attempt[]> {
     if (provider === 'groq' && !GROQ_KEY) continue
     const candidates = provider === 'gemini' ? GEMINI_CANDIDATES : GROQ_CANDIDATES
     const live = await availableModels(provider)
-    const usable = live ? candidates.filter((m) => live.has(m)) : candidates
+    let usable = live ? candidates.filter((m) => live.has(m)) : candidates
+    if (provider === 'gemini' && live) {
+      // Prefer the newest stable Flash models Google currently offers (names change often).
+      const flash = [...live]
+        .filter((m) => /^gemini-\d+(\.\d+)?-flash(-lite)?$/.test(m))
+        .sort((a, b) => parseFloat(b.split('-')[1]) - parseFloat(a.split('-')[1]) || a.length - b.length)
+      usable = [...new Set([...(Deno.env.get('GEMINI_MODEL') ? [Deno.env.get('GEMINI_MODEL')!] : []), ...flash, ...usable])]
+    }
     // Keep at most two models per provider so a bad day cannot take minutes.
-    for (const model of [...new Set(usable.length ? usable : candidates)].slice(0, 2)) plan.push({ provider, model })
+    const healthy = [...new Set(usable.length ? usable : candidates)].filter((model) => DIAG_ALL || !isDead({ provider, model }))
+    for (const model of healthy.slice(0, 2)) plan.push({ provider, model })
+    if (DIAG_ALL) for (const model of usable.slice(2, 6)) plan.push({ provider, model })
   }
   return plan
 }
 
 /** Ask the models in order, retrying busy ones once; fall back on errors or unparseable output. */
-async function askJSON(system: string, messages: Msg[], used: { provider?: string; model?: string }, effort: Effort = 'low') {
+async function askJSON(system: string, messages: Msg[], used: { provider?: string; model?: string }, effort: Effort = 'low', maxTokens = 4096) {
   const plan = await attemptPlan()
   if (!plan.length) throw new HttpError(500, 'No AI key configured. Add GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets.')
   const errors: string[] = []
   for (const { provider, model } of plan) {
     for (let tryNo = 0; tryNo < 2; tryNo++) {
       try {
-        const raw = provider === 'gemini' ? await callGemini(model, system, messages) : await callGroq(model, system, messages, true, effort)
+        const raw = provider === 'gemini' ? await callGemini(model, system, messages, Math.max(maxTokens, 8192)) : await callGroq(model, system, messages, true, effort, maxTokens)
         const parsed = parseJSON(raw)
         used.provider = provider
         used.model = model
@@ -146,6 +166,8 @@ async function askJSON(system: string, messages: Msg[], used: { provider?: strin
       } catch (e) {
         const status = e instanceof HttpError ? e.status : 0
         errors.push(`${provider}/${model}: ${(e as Error).message}`)
+        markFailure({ provider, model }, status, (e as Error).message)
+        if (status === 429 && /quota/i.test((e as Error).message)) break // retrying will not help
         if (tryNo === 0 && RETRYABLE.has(status)) {
           await sleep(1500)
           continue
@@ -155,7 +177,8 @@ async function askJSON(system: string, messages: Msg[], used: { provider?: strin
     }
   }
   console.error('AI providers failed', errors)
-  throw new HttpError(502, `The AI services are busy right now. Please try again in a minute. (${errors.at(-1)?.slice(0, 160)})`)
+  const detail = errors.map((e) => `• ${e.slice(0, 180)}`).join('\n')
+  throw new HttpError(502, `The AI services are busy right now. Please try again in a minute.\n${detail}`)
 }
 
 function parseJSON(raw: string) {
@@ -177,7 +200,7 @@ function nowInColombo() {
 
 const SECTION_CATALOG = SECTION_IDS.map((id) => `- ${id}: ${SECTIONS[id].label}`).join('\n')
 
-function routerPrompt() {
+function routerPrompt(plan: string) {
   return `You are the planner for ASCEND, a personal timetable and life-plan website owned by Piyumal, a DevOps engineer in Sri Lanka.
 The site content is a JSON document split into these sections:
 ${SECTION_CATALOG}
@@ -185,17 +208,20 @@ ${SECTION_CATALOG}
 Given the conversation, decide which sections are needed to answer or to make the requested change.
 Pick the smallest set that is enough. Timetable requests usually need one or more "schedule.*" sections.
 "Weekdays" means Monday-Friday (the "weekday" section). Plan A = no bike (current), Plan B = with bike and gym.
-If the request is unclear or impossible, ask a short clarifying question instead.
+The user is currently viewing Plan ${plan}. If they do not name a plan, include the matching sections of BOTH plans
+(the block usually exists in both); do not ask which plan.
+Ask a short clarifying question only if the request is genuinely impossible to interpret.
 
 Reply with JSON only: {"sections": ["id", ...], "clarify": "question or empty string"}`
 }
 
-function editorPrompt(pillars: Record<string, { label: string }>) {
+function editorPrompt(pillars: Record<string, { label: string }>, plan: string) {
   const pillarList = Object.entries(pillars).map(([k, v]) => `${k} (${v.label})`).join(', ')
   return `You are the editor for ASCEND, Piyumal's personal timetable and life-plan website. Today is ${nowInColombo()} (Sri Lanka time).
 You receive some sections of the site content as JSON plus the user's request. Either answer a question about them, or edit them.
 
 Rules for edits:
+- If the user does not name a plan, apply the change to every provided plan section where it fits (they are viewing Plan ${plan}).
 - Change only what the user asked. Keep every other item, word and field exactly as it is.
 - For each section you change, return its COMPLETE new value (the whole list or object), not a fragment.
 - Times are 24h "HH:MM". Blocks in one day must not overlap; only the final sleep block may cross midnight.
@@ -247,8 +273,24 @@ Deno.serve(async (req) => {
     if (email !== OWNER_EMAIL) throw new HttpError(403, 'Only the owner can use the assistant.')
 
     const body = await req.json().catch(() => ({}))
+    const plan = body.plan === 'B' ? 'B' : 'A'
     if (body.action === 'models') {
-      return json({ plan: await attemptPlan(), primary: PRIMARY })
+      // Diagnostics: ping every model in the plan with a tiny JSON request.
+      DIAG_ALL = true
+      const plan = await attemptPlan()
+      DIAG_ALL = false
+      const results = []
+      for (const a of plan) {
+        const t = Date.now()
+        try {
+          const sys = 'Reply with JSON only: {"ok": true}'
+          const raw = a.provider === 'gemini' ? await callGemini(a.model, sys, [{ role: 'user', content: 'ping' }], 64) : await callGroq(a.model, sys, [{ role: 'user', content: 'ping' }], true, 'low', 64)
+          results.push({ ...a, ok: true, ms: Date.now() - t, sample: raw.slice(0, 60) })
+        } catch (e) {
+          results.push({ ...a, ok: false, ms: Date.now() - t, error: (e as Error).message.slice(0, 900) })
+        }
+      }
+      return json({ primary: PRIMARY, results })
     }
     const message = String(body.message ?? '').trim().slice(0, 4000)
     if (!message) throw new HttpError(400, 'Empty message.')
@@ -268,7 +310,7 @@ Deno.serve(async (req) => {
     const convo: Msg[] = [...history, { role: 'user', content: message }]
 
     // 1) Route: which sections matter?
-    const route = await askJSON(routerPrompt(), convo, used)
+    const route = await askJSON(routerPrompt(plan), convo, used, 'low', 600)
     if (route?.clarify) {
       return json({ reply: String(route.clarify), changes: [], provider: used.provider, model: used.model, baseVersion: row.id })
     }
@@ -286,7 +328,7 @@ Deno.serve(async (req) => {
     let errors: string[] = []
     const started = Date.now()
     for (let attempt = 0; attempt < 3; attempt++) {
-      result = await askJSON(editorPrompt(content.pillars), editMsgs, used, 'medium')
+      result = await askJSON(editorPrompt(content.pillars, plan), editMsgs, used, 'medium', 4096)
       const changes = Array.isArray(result?.changes) ? result.changes : []
       errors = []
       let next = content

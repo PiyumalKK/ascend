@@ -70,8 +70,18 @@ function ChangeView({ change, content }) {
 }
 
 // ---------------------------------------------------------------- chat
+// The plan the user is looking at (synced setting, cached locally per user).
+function currentPlan() {
+  try {
+    const key = Object.keys(localStorage).find((k) => /^ascend\..+\.plan$/.test(k))
+    return key ? JSON.parse(localStorage.getItem(key)) : 'A'
+  } catch {
+    return 'A'
+  }
+}
+
 async function callAssistant(message, history, onAuthError) {
-  const { data, error } = await supabase.functions.invoke('assistant', { body: { message, history } })
+  const { data, error } = await supabase.functions.invoke('assistant', { body: { message, history, plan: currentPlan() } })
   if (error) {
     let msg = error.message
     try {
