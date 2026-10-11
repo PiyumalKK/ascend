@@ -19,10 +19,15 @@ const SECTIONS = SECTION_DEFS as Record<string, { label: string }>
 const OWNER_EMAIL = (Deno.env.get('OWNER_EMAIL') ?? 'piyumalm912@gmail.com').toLowerCase()
 const GEMINI_KEY = Deno.env.get('GEMINI_API_KEY') ?? ''
 const GROQ_KEY = Deno.env.get('GROQ_API_KEY') ?? ''
-const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-flash-latest'
-const GROQ_MODEL = Deno.env.get('GROQ_MODEL') ?? 'llama-3.3-70b-versatile'
 const PRIMARY = (Deno.env.get('AI_PRIMARY') ?? 'gemini').toLowerCase()
 
+// Candidate models in preference order. A configured model goes first; names that a provider
+// has retired are skipped automatically using its live model list.
+const GEMINI_CANDIDATES = [Deno.env.get('GEMINI_MODEL'), 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest']
+  .filter(Boolean) as string[]
+const GROQ_CANDIDATES = [Deno.env.get('GROQ_MODEL'), 'openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'moonshotai/kimi-k2-instruct-0905', 'qwen/qwen3-32b', 'openai/gpt-oss-20b']
+  .filter(Boolean) as string[]
+const CALL_TIMEOUT_MS = 60_000
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -42,9 +47,14 @@ class HttpError extends Error {
 // ---------------------------------------------------------------- LLM providers
 type Msg = { role: 'user' | 'assistant'; content: string }
 
-async function callGemini(system: string, messages: Msg[]): Promise<string> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+type Effort = 'low' | 'medium'
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const RETRYABLE = new Set([429, 500, 502, 503, 504])
+
+async function callGemini(model: string, system: string, messages: Msg[]): Promise<string> {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
+    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
@@ -52,59 +62,100 @@ async function callGemini(system: string, messages: Msg[]): Promise<string> {
       generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 16384 },
     }),
   })
-  if (!res.ok) throw new HttpError(res.status, `Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  if (!res.ok) throw new HttpError(res.status, `${res.status} ${(await res.text()).slice(0, 200)}`)
   const data = await res.json()
   const text = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? ''
-  if (!text) throw new HttpError(502, `Gemini returned no text (${data?.candidates?.[0]?.finishReason ?? 'unknown'})`)
+  if (!text) throw new HttpError(502, `no text (${data?.candidates?.[0]?.finishReason ?? 'unknown'})`)
   return text
 }
 
-async function callGroq(system: string, messages: Msg[]): Promise<string> {
+async function callGroq(model: string, system: string, messages: Msg[], jsonMode = true, effort: Effort = 'low'): Promise<string> {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY}` },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model,
       temperature: 0.2,
-      max_tokens: 8192,
-      response_format: { type: 'json_object' },
+      max_completion_tokens: 8192,
+      ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: effort } : {}),
+      ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
       messages: [{ role: 'system', content: system }, ...messages],
     }),
   })
-  if (!res.ok) throw new HttpError(res.status, `Groq ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  if (!res.ok) {
+    const text = await res.text()
+    // Some models reject JSON mode; retry the same model without it.
+    if (res.status === 400 && jsonMode && /response_format|json/i.test(text)) return callGroq(model, system, messages, false, effort)
+    throw new HttpError(res.status, `${res.status} ${text.slice(0, 200)}`)
+  }
   const data = await res.json()
   return data?.choices?.[0]?.message?.content ?? ''
 }
 
-const PROVIDERS = {
-  gemini: { key: () => GEMINI_KEY, call: callGemini, model: () => GEMINI_MODEL },
-  groq: { key: () => GROQ_KEY, call: callGroq, model: () => GROQ_MODEL },
-} as const
-type ProviderName = keyof typeof PROVIDERS
-
-function providerOrder(): ProviderName[] {
-  const first: ProviderName = PRIMARY === 'groq' ? 'groq' : 'gemini'
-  const second: ProviderName = first === 'gemini' ? 'groq' : 'gemini'
-  return [first, second].filter((p) => PROVIDERS[p].key())
+// Live model lists, cached per function instance.
+const modelCache: Record<string, Promise<Set<string> | null>> = {}
+function availableModels(provider: 'gemini' | 'groq'): Promise<Set<string> | null> {
+  modelCache[provider] ??= (async () => {
+    try {
+      if (provider === 'groq') {
+        const r = await fetch('https://api.groq.com/openai/v1/models', { headers: { Authorization: `Bearer ${GROQ_KEY}` }, signal: AbortSignal.timeout(8000) })
+        if (!r.ok) return null
+        return new Set(((await r.json()).data ?? []).map((m: { id: string }) => m.id))
+      }
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': GEMINI_KEY }, signal: AbortSignal.timeout(8000) })
+      if (!r.ok) return null
+      return new Set(((await r.json()).models ?? []).map((m: { name: string }) => m.name.replace(/^models\//, '')))
+    } catch {
+      return null
+    }
+  })()
+  return modelCache[provider]
 }
 
-/** Ask the models in order; fall back on errors or unparseable output. */
-async function askJSON(system: string, messages: Msg[], used: { provider?: string; model?: string }) {
+type Attempt = { provider: 'gemini' | 'groq'; model: string }
+
+async function attemptPlan(): Promise<Attempt[]> {
+  const order: ('gemini' | 'groq')[] = PRIMARY === 'groq' ? ['groq', 'gemini'] : ['gemini', 'groq']
+  const plan: Attempt[] = []
+  for (const provider of order) {
+    if (provider === 'gemini' && !GEMINI_KEY) continue
+    if (provider === 'groq' && !GROQ_KEY) continue
+    const candidates = provider === 'gemini' ? GEMINI_CANDIDATES : GROQ_CANDIDATES
+    const live = await availableModels(provider)
+    const usable = live ? candidates.filter((m) => live.has(m)) : candidates
+    // Keep at most two models per provider so a bad day cannot take minutes.
+    for (const model of [...new Set(usable.length ? usable : candidates)].slice(0, 2)) plan.push({ provider, model })
+  }
+  return plan
+}
+
+/** Ask the models in order, retrying busy ones once; fall back on errors or unparseable output. */
+async function askJSON(system: string, messages: Msg[], used: { provider?: string; model?: string }, effort: Effort = 'low') {
+  const plan = await attemptPlan()
+  if (!plan.length) throw new HttpError(500, 'No AI key configured. Add GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets.')
   const errors: string[] = []
-  for (const name of providerOrder()) {
-    const p = PROVIDERS[name]
-    try {
-      const raw = await p.call(system, messages)
-      const parsed = parseJSON(raw)
-      used.provider = name
-      used.model = p.model()
-      return parsed
-    } catch (e) {
-      errors.push(`${name}: ${(e as Error).message}`)
+  for (const { provider, model } of plan) {
+    for (let tryNo = 0; tryNo < 2; tryNo++) {
+      try {
+        const raw = provider === 'gemini' ? await callGemini(model, system, messages) : await callGroq(model, system, messages, true, effort)
+        const parsed = parseJSON(raw)
+        used.provider = provider
+        used.model = model
+        return parsed
+      } catch (e) {
+        const status = e instanceof HttpError ? e.status : 0
+        errors.push(`${provider}/${model}: ${(e as Error).message}`)
+        if (tryNo === 0 && RETRYABLE.has(status)) {
+          await sleep(1500)
+          continue
+        }
+        break
+      }
     }
   }
-  if (!providerOrder().length) throw new HttpError(500, 'No AI key configured. Add GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets.')
-  throw new HttpError(502, `All AI providers failed. ${errors.join(' | ')}`)
+  console.error('AI providers failed', errors)
+  throw new HttpError(502, `The AI services are busy right now. Please try again in a minute. (${errors.at(-1)?.slice(0, 160)})`)
 }
 
 function parseJSON(raw: string) {
@@ -148,7 +199,9 @@ Rules for edits:
 - Change only what the user asked. Keep every other item, word and field exactly as it is.
 - For each section you change, return its COMPLETE new value (the whole list or object), not a fragment.
 - Times are 24h "HH:MM". Blocks in one day must not overlap; only the final sleep block may cross midnight.
-  When you move or resize a block, shift or shorten neighbouring blocks so the day stays continuous and sensible.
+  When you move or resize a block, shift or shorten neighbouring FLEXIBLE blocks so the day stays continuous and sensible.
+- FIXED commitments never move unless the user explicitly asks to change them: office, commute/ride, prayer, wake-up and sleep.
+  Make room by shortening or moving flexible blocks (deep work, study, English, research, content, meals, family time) instead.
 - "pillar" must be one of: ${pillarList}. Add a new category only by also returning the "pillars" section.
 - Weekday rotations: a block's optional "byDay" maps "1"-"5" (Mon-Fri) to overrides of title/pillar/detail.
 - A change for one specific date or a single day only belongs in "schedule.overrides" with key "A-<weekday>" or "B-<weekday>" (0=Sunday ... 6=Saturday) holding that full day.
@@ -157,6 +210,24 @@ Rules for edits:
 
 Reply with JSON only:
 {"reply": "1-3 sentences for the user: what you changed and why, or the answer", "summary": "short commit-style summary of the change, or empty", "changes": [{"section": "<section id>", "value": <complete new value>}]}`
+}
+
+// ---------------------------------------------------------------- fixed-commitment guard
+const FIXED_PILLARS = new Set(['office', 'commute', 'sleep'])
+const FIXED_TITLE = /prayer|wake/i
+const FIXED_WORDS = /office|work hours|commute|ride|bike|travel|prayer|pray|wake|alarm|sleep|bed|lights out/i
+
+type Block = { start: string; end: string; title: string; pillar: string }
+const isFixed = (b: Block) => FIXED_PILLARS.has(b.pillar) || FIXED_TITLE.test(b.title)
+const sig = (b: Block) => `${b.title}@${b.start}-${b.end}`
+
+/** Errors for fixed blocks that changed although the user's message never mentioned them. */
+function fixedBlockErrors(section: string, before: unknown, after: unknown, message: string): string[] {
+  if (!section.startsWith('schedule.') || FIXED_WORDS.test(message)) return []
+  if (!Array.isArray(before) || !Array.isArray(after)) return []
+  const afterSigs = new Set((after as Block[]).filter(isFixed).map(sig))
+  return (before as Block[]).filter(isFixed).filter((b) => !afterSigs.has(sig(b)))
+    .map((b) => `${section}: fixed block "${b.title}" (${b.start}-${b.end}) must stay exactly as it is; adjust flexible blocks instead`)
 }
 
 // ---------------------------------------------------------------- handler
@@ -176,6 +247,9 @@ Deno.serve(async (req) => {
     if (email !== OWNER_EMAIL) throw new HttpError(403, 'Only the owner can use the assistant.')
 
     const body = await req.json().catch(() => ({}))
+    if (body.action === 'models') {
+      return json({ plan: await attemptPlan(), primary: PRIMARY })
+    }
     const message = String(body.message ?? '').trim().slice(0, 4000)
     if (!message) throw new HttpError(400, 'Empty message.')
     const history: Msg[] = (Array.isArray(body.history) ? body.history : [])
@@ -210,8 +284,9 @@ Deno.serve(async (req) => {
     ]
     let result: { reply?: string; summary?: string; changes?: { section: string; value: unknown }[] } = {}
     let errors: string[] = []
+    const started = Date.now()
     for (let attempt = 0; attempt < 3; attempt++) {
-      result = await askJSON(editorPrompt(content.pillars), editMsgs, used)
+      result = await askJSON(editorPrompt(content.pillars), editMsgs, used, 'medium')
       const changes = Array.isArray(result?.changes) ? result.changes : []
       errors = []
       let next = content
@@ -226,7 +301,9 @@ Deno.serve(async (req) => {
       // Changing categories can invalidate any section that references them.
       const toCheck = touched.has('pillars') ? SECTION_IDS : [...touched]
       for (const s of toCheck) errors.push(...validateSection(s, getAt(next, s), next))
+      for (const c of changes) errors.push(...fixedBlockErrors(c.section, getAt(content, c.section), c.value, message))
       if (!errors.length) break
+      if (Date.now() - started > 75_000) break // stay well inside the function's time limit
       editMsgs.push({ role: 'assistant', content: JSON.stringify(result) })
       editMsgs.push({ role: 'user', content: `Your edit failed validation. Fix these problems and return the full corrected JSON:\n- ${errors.slice(0, 15).join('\n- ')}` })
     }
